@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "light-rcnn"
+version = "0.1.0"
+description = "Lightweight two-stage object detection research scaffold"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "torch>=2.2",
+  "torchvision>=0.17",
+  "numpy>=1.26",
+  "PyYAML>=6.0",
+  "Pillow>=10.0",
+  "tqdm>=4.66",
+]
+
+[project.optional-dependencies]
+train = ["pycocotools>=2.0.7", "tensorboard>=2.16"]
+export = ["onnx>=1.15", "onnxsim>=0.4.36"]
+compare-yolo = ["ultralytics>=8.4"]
+dev = ["ruff>=0.4", "pytest>=8.0"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
