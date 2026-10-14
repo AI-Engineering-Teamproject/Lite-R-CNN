@@ -21,6 +21,7 @@ dependencies = [
 train = ["pycocotools>=2.0.7", "tensorboard>=2.16"]
 export = ["onnx>=1.15", "onnxsim>=0.4.36"]
 compare-yolo = ["ultralytics>=8.4"]
+dashboard = ["streamlit>=1.35", "plotly>=5.20", "pandas>=2.2"]
 dev = ["ruff>=0.4", "pytest>=8.0"]
 
 [tool.setuptools.packages.find]

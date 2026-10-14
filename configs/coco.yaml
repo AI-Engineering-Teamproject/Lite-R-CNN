@@ -3,9 +3,9 @@ device: cuda
 num_classes: 91 # background plus original COCO category-id space
 image_size: 640
 data:
-  train_images: data/coco/train2017
+  train_images: data/coco/images/train2017
   train_annotations: data/coco/annotations/instances_train2017.json
-  val_images: data/coco/val2017
+  val_images: data/coco/images/val2017
   val_annotations: data/coco/annotations/instances_val2017.json
 model:
   architecture: light_rcnn

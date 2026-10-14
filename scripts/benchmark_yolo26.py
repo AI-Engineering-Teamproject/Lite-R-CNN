@@ -2,9 +2,15 @@
 
 import argparse
 import json
+import os
 import statistics
 import time
 from pathlib import Path
+
+# Keep Ultralytics settings inside the project so read-only user profiles work.
+_ultralytics_config = Path("outputs/.ultralytics").resolve()
+_ultralytics_config.mkdir(parents=True, exist_ok=True)
+os.environ.setdefault("YOLO_CONFIG_DIR", str(_ultralytics_config))
 
 import torch
 import cv2

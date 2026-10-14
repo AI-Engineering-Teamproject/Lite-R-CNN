@@ -11,30 +11,39 @@ Light R-CNN은 Faster R-CNN의 최적화 버전입니다. 표준 앵커 기반 R
 ## 설정
 
 ```powershell
-python -m venv .venv
+py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
-python -m pip install -e ".[train,export]"
-
+python -m pip install -e ".[train,export,compare-yolo,dashboard]"
 ```
 
-`configs/coco.yaml` 파일에 설정된 경로에 맞추어 COCO 2017 이미지 및 주석(annotation) 파일을 `data/coco/` 하위에 배치하십시오. 패키지를 설치하기 전에 시스템의 CUDA 런타임 버전과 일치하는 PyTorch/torchvision 빌드를 설치해야 합니다.
+시스템에 Python 3.12가 설치되어 있지 않으면 먼저 Python 3.12를 설치하십시오. 이 프로젝트는 Python 3.10 이상이 필요합니다. Windows에서 `py` 런처를 사용할 수 없는 경우 설치된 Python 3.12의 실행 파일로 `-m venv .venv`를 실행하면 됩니다.
+
+COCO 이미지는 `data/coco/images/{train2017,val2017}`, 주석은 `data/coco/annotations/instances_{train2017,val2017}.json` 구조로 배치하십시오. 패키지를 설치하기 전에 시스템의 CUDA 런타임 버전과 일치하는 PyTorch/torchvision 빌드를 설치해야 합니다.
 
 ## 현재 진입점 (Entry points)
 
+COCO 검증 데이터와 `outputs/coco/last.pth`가 준비되어 있으면 아래 한 명령으로 Faster R-CNN → Light R-CNN → YOLO26 순서로 COCO 평가와 지연 시간 측정을 실행한 뒤 대시보드를 엽니다. 아직 Light R-CNN 가중치를 학습하지 않았다면 `--train-light`를 추가하십시오. CPU 학습과 전체 COCO 평가는 오래 걸릴 수 있습니다.
+
+```powershell
+python scripts/run_comparison.py --device cpu
+# 체크포인트가 없고 COCO train split도 준비되어 있다면:
+python scripts/run_comparison.py --device cpu --train-light
+```
+
+실행 중 하나라도 실패하면 뒤 단계와 대시보드 실행은 중단됩니다. 반복 횟수와 예열 횟수는 `--iterations`, `--warmup`으로 조절하고, 빠른 부분 평가가 필요하면 `--limit`으로 세 모델의 평가 이미지 수를 함께 제한할 수 있습니다. 부분 평가 결과는 전체 COCO 평가 결과와 구분해서 해석하십시오. 결과 JSON은 `outputs/`에 저장됩니다.
+
+개별 학습, 평가, ONNX 내보내기 명령은 아래 스크립트를 직접 실행할 수 있습니다.
+
 ```powershell
 python scripts/train.py --config configs/coco.yaml
-python scripts/evaluate_coco.py --model faster_rcnn
-python scripts/evaluate_coco.py --model light_rcnn --weights outputs/coco/last.pth
-python scripts/benchmark.py --model faster_rcnn --device cuda
-python scripts/benchmark.py --model light_rcnn --weights outputs/coco/last.pth --device cuda
 python scripts/export_onnx.py --weights outputs/coco/last.pth
-python scripts/benchmark_yolo26.py --source data/coco/val2017 --device 0
-
 ```
 
 학습 진입점은 torchvision의 Faster R-CNN RPN/RoI 손실 함수를 사용하며 `last.pth`를 기록합니다. 학습 재개(resume) 기능이나 검증 AP 보고 기능은 아직 지원하지 않습니다. ONNX 내보내기는 고정 크기(fixed-shape)의 전체 탐지 경로를 지원합니다. 타겟 TensorRT 버전에 대한 RoIAlign 및 NMS 지원 검증은 [deploy/tensorrt/README.md](https://www.google.com/search?q=deploy/tensorrt/README.md)에 설명된 절차를 따르십시오.
 
-YOLO26 스크립트는 JSON 형태의 타이밍 보고서를 출력합니다. Faster R-CNN 벤치마크 스크립트는 두 PyTorch 모델에 대해 배치-1 p50/p95 타이밍을 보고합니다. 두 스크립트 모두 기본적으로 640 픽셀 입력을 사용합니다. PyTorch 베이스라인 수치는 프레임워크 지연 시간(framework latency)을 의미하며, 최종 T4 하드웨어 비교 시에는 지원되는 범위 내에서 세 모델 모두 동일한 TensorRT 정밀도와 측정 범위를 적용하여 테스트를 반복해야 합니다.
+YOLO26 스크립트는 JSON 타이밍 결과를 저장하고, 평가 스크립트는 COCO 주석에서 YOLO 형식 검증 레이블을 생성해 COCO 지표를 계산합니다. Faster R-CNN 벤치마크는 두 PyTorch 모델의 배치-1 p50/p95 지연 시간을 JSON으로 저장합니다. `streamlit run dashboard/app.py`로 세 모델 결과 대시보드를 실행할 수 있습니다. 최종 T4 비교는 가능한 경우 세 모델 모두 같은 정밀도와 측정 범위로 반복해야 합니다.
+
+대시보드는 `outputs/**/*.json`을 자동으로 합쳐 세 모델의 AP-지연 시간 산점도, p50/p95 지연 막대 그래프, COCO AP 그래프와 수치 표를 한 화면에 보여줍니다. 평가와 벤치마크를 마친 뒤 대시보드를 실행하면 각 모델 결과가 같은 행으로 합쳐집니다.
 
 ## 설계 참고 사항
 
