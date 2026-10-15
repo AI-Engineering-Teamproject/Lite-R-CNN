@@ -9,8 +9,8 @@ from torch import nn
 from torchvision.models.detection import FasterRCNN, fasterrcnn_resnet50_fpn
 from torchvision.models.detection.anchor_utils import AnchorGenerator
 from torchvision.models.detection.faster_rcnn import (
-    FastRCNNPredictor,
     FasterRCNN_ResNet50_FPN_Weights,
+    FastRCNNPredictor,
 )
 from torchvision.models.detection.rpn import RPNHead
 from torchvision.ops import MultiScaleRoIAlign
@@ -32,24 +32,25 @@ class MobileBiFPNBackbone(nn.Module):
         return OrderedDict((str(index), feature) for index, feature in enumerate(features))
 
 
-class CompressedMultiScaleRoIAlign(nn.Module):
+class CompressedMultiScaleRoIAlign(MultiScaleRoIAlign):
     """Project FPN maps to a narrow channel width before RoIAlign."""
 
     def __init__(self, in_channels: int, roi_channels: int = 10, output_size: int = 7):
-        super().__init__()
-        self.projections = nn.ModuleDict({
-            str(index): nn.Sequential(
-                nn.Conv2d(in_channels, roi_channels, kernel_size=1, bias=False),
-                nn.BatchNorm2d(roi_channels),
-                nn.ReLU(inplace=True),
-            )
-            for index in range(3)
-        })
-        self.pool = MultiScaleRoIAlign(["0", "1", "2"], output_size=output_size, sampling_ratio=2)
+        super().__init__(["0", "1", "2"], output_size=output_size, sampling_ratio=2)
+        self.projections = nn.ModuleDict(
+            {
+                str(index): nn.Sequential(
+                    nn.Conv2d(in_channels, roi_channels, kernel_size=1, bias=False),
+                    nn.BatchNorm2d(roi_channels),
+                    nn.ReLU(inplace=True),
+                )
+                for index in range(3)
+            }
+        )
 
     def forward(self, features, boxes, image_shapes):
         projected = {key: self.projections[key](features[key]) for key in self.projections}
-        return self.pool(projected, boxes, image_shapes)
+        return super().forward(projected, boxes, image_shapes)
 
 
 class GlobalAverageRoIHead(nn.Module):
@@ -114,7 +115,7 @@ def build_vanilla_faster_rcnn(
     max_size: int = 640,
 ) -> FasterRCNN:
     """Build the ResNet-50-FPN vanilla Faster R-CNN comparison baseline."""
-    weights = FasterRCNN_ResNet50_FPN_Weights.DEFAULT if pretrained else None
+    weights = FasterRCNN_ResNet50_FPN_Weights.COCO_V1 if pretrained else None
     return fasterrcnn_resnet50_fpn(
         weights=weights,
         weights_backbone=None,
@@ -130,3 +131,19 @@ def build_detector(kind: str = "light_rcnn", **kwargs) -> nn.Module:
     if kind == "faster_rcnn":
         return build_vanilla_faster_rcnn(**kwargs)
     raise ValueError(f"Unknown detector kind: {kind}")
+
+
+def light_rcnn_from_config(config: dict, *, pretrained: bool = False) -> LightRCNN:
+    """Use the same architecture when training, validating and loading checkpoints."""
+    model = config["model"]
+    return LightRCNN(
+        num_classes=config["num_classes"],
+        pretrained_backbone=pretrained,
+        bifpn_channels=model["bifpn_channels"],
+        roi_channels=model["roi_channels"],
+        roi_size=model["roi_size"],
+        rpn_pre_nms_topk_test=model["rpn_pre_nms_topk_test"],
+        rpn_post_nms_topk_test=model["rpn_post_nms_topk_test"],
+        min_size=config["image_size"],
+        max_size=config["image_size"],
+    )

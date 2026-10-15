@@ -1,69 +1,317 @@
-"""Train the Light R-CNN student with torchvision Faster R-CNN losses."""
+"""Train, validate, resume and optionally distill a Light R-CNN detector."""
 
 import argparse
+import json
+import math
+import random
+import shutil
+from collections import defaultdict
+from copy import deepcopy
 from pathlib import Path
 
+import numpy as np
 import torch
 import yaml
+from torch.utils.data import DataLoader, Subset
 from tqdm import tqdm
 
-from light_rcnn.data import build_coco_loader
-from light_rcnn.model import LightRCNN
+from light_rcnn.data import CocoTensorDataset, detection_collate
+from light_rcnn.distillation import DistillationTrainer, build_teacher
+from light_rcnn.evaluation import evaluate_coco
+from light_rcnn.model.detector import light_rcnn_from_config
 from light_rcnn.utils import seed_everything
 
 
+def rng_state():
+    numpy_state = np.random.get_state()
+    return {
+        "python": random.getstate(),
+        "torch": torch.get_rng_state(),
+        "numpy": [numpy_state[0], numpy_state[1].tolist(), *numpy_state[2:]],
+        "cuda": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else [],
+    }
+
+
+def restore_rng(state):
+    random.setstate(state["python"])
+    torch.set_rng_state(state["torch"].cpu())
+    name, keys, position, has_gauss, cached = state["numpy"]
+    np.random.set_state((name, np.asarray(keys, dtype=np.uint32), position, has_gauss, cached))
+    if torch.cuda.is_available() and state["cuda"]:
+        torch.cuda.set_rng_state_all(state["cuda"])
+
+
+def atomic_save(checkpoint, path):
+    temporary = path.with_suffix(".tmp")
+    torch.save(checkpoint, temporary)
+    temporary.replace(path)
+
+
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--config", default="configs/coco.yaml")
-    args = parser.parse_args()
-    with open(args.config, encoding="utf-8") as file:
-        config = yaml.safe_load(file)
-    seed_everything(config["seed"])
-    data = config["data"]
-    loader = build_coco_loader(data["train_images"], data["train_annotations"],
-                               config["train"]["batch_size"], config["train"]["workers"], True)
-    model_cfg = config["model"]
-    model = LightRCNN(
-        num_classes=config["num_classes"],
-        bifpn_channels=model_cfg["bifpn_channels"],
-        roi_channels=model_cfg["roi_channels"],
-        roi_size=model_cfg["roi_size"],
-        pretrained_backbone=model_cfg["pretrained"],
-        rpn_pre_nms_topk_test=model_cfg["rpn_pre_nms_topk_test"],
-        rpn_post_nms_topk_test=model_cfg["rpn_post_nms_topk_test"],
-        min_size=config["image_size"],
-        max_size=config["image_size"],
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--config", help="Defaults to configs/coco.yaml, or saved config on resume")
+    startup = parser.add_mutually_exclusive_group()
+    startup.add_argument(
+        "--resume", help="Restore the complete training state at an epoch boundary"
     )
-    device = torch.device(config["device"] if torch.cuda.is_available() else "cpu")
-    model.to(device)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=config["train"]["learning_rate"],
-                                  weight_decay=config["train"]["weight_decay"])
-    scaler = torch.cuda.amp.GradScaler(enabled=(device.type == "cuda" and config["train"]["amp"]))
-    output_dir = Path(config["train"]["output_dir"])
+    startup.add_argument("--init-weights", help="Initialize student weights for a new run, e.g. KD")
+    parser.add_argument(
+        "--distill", action="store_true", help="Enable feature and RoI distillation"
+    )
+    parser.add_argument("--device")
+    parser.add_argument("--epochs", type=int, help="Total epoch count, including completed epochs")
+    parser.add_argument("--output-dir")
+    parser.add_argument(
+        "--train-limit", type=int, default=None, help="First N training images; 0=all"
+    )
+    parser.add_argument(
+        "--val-limit", type=int, default=None, help="First N validation images; 0=all"
+    )
+    parser.add_argument("--validate-every", type=int)
+    args = parser.parse_args()
+    saved = torch.load(args.resume, map_location="cpu", weights_only=True) if args.resume else None
+    if saved and saved.get("format_version") != 1:
+        raise ValueError("Legacy checkpoint: use --init-weights for a new run instead of --resume")
+    if args.config or not saved:
+        with open(args.config or "configs/coco.yaml", encoding="utf-8") as file:
+            config = yaml.safe_load(file)
+    else:
+        config = deepcopy(saved["config"])
+    if args.distill:
+        config.setdefault("distillation", {})["enabled"] = True
+    train = config["train"]
+    if args.device is not None:
+        config["device"] = args.device
+    for argument, key in (
+        (args.epochs, "epochs"),
+        (args.output_dir, "output_dir"),
+        (args.validate_every, "validate_every"),
+    ):
+        if argument is not None:
+            train[key] = argument
+    for argument, key in ((args.train_limit, "train_limit"), (args.val_limit, "val_limit")):
+        if argument is not None:
+            train[key] = argument
+        train.setdefault(key, 0)
+    train.setdefault("validate_every", 1)
+    train.setdefault("warmup_steps", 500)
+    train.setdefault("lr_milestones", [24, 32])
+    train.setdefault("lr_gamma", 0.1)
+    train.setdefault("max_grad_norm", 10.0)
+    if (
+        train["epochs"] < 1
+        or train["batch_size"] < 1
+        or train["workers"] < 0
+        or train["validate_every"] < 1
+        or train["train_limit"] < 0
+        or train["val_limit"] < 0
+        or train["warmup_steps"] < 0
+        or train["max_grad_norm"] <= 0
+    ):
+        raise ValueError("Invalid epoch, batch, worker, validation or subset settings")
+    if saved:
+        for key in ("model", "num_classes", "image_size", "distillation", "data", "seed"):
+            if config.get(key) != saved["config"].get(key):
+                raise ValueError(
+                    f"Cannot change {key} on resume; start a new run with --init-weights"
+                )
+        for key in (
+            "batch_size",
+            "learning_rate",
+            "weight_decay",
+            "amp",
+            "warmup_steps",
+            "lr_milestones",
+            "lr_gamma",
+            "train_limit",
+            "val_limit",
+            "validate_every",
+            "max_grad_norm",
+        ):
+            if train.get(key) != saved["config"]["train"].get(key):
+                raise ValueError(f"Cannot change train.{key} on resume")
+    output_dir = Path(train["output_dir"])
     output_dir.mkdir(parents=True, exist_ok=True)
-    print(f"Training on {len(loader.dataset)} images with {device}; checkpoints: {output_dir}")
-    for epoch in range(config["train"]["epochs"]):
-        model.train()
-        running_loss = 0.0
-        progress = tqdm(loader, desc=f"epoch {epoch + 1}/{config['train']['epochs']}")
+    if not saved and (output_dir / "last.pth").exists():
+        raise ValueError("Output already contains last.pth; use --resume or a new --output-dir")
+    seed_everything(config["seed"])
+    device = torch.device(config["device"])
+    if device.type == "cuda" and not torch.cuda.is_available():
+        raise RuntimeError("CUDA unavailable; use --device cpu for a smoke test")
+    data = config["data"]
+    dataset = CocoTensorDataset(data["train_images"], data["train_annotations"])
+    if train["train_limit"]:
+        dataset = Subset(dataset, range(min(len(dataset), train["train_limit"])))
+    if not len(dataset):
+        raise ValueError("Training dataset must contain images")
+    loader = DataLoader(
+        dataset,
+        batch_size=train["batch_size"],
+        shuffle=True,
+        num_workers=train["workers"],
+        pin_memory=device.type == "cuda",
+        collate_fn=detection_collate,
+    )
+    validation = CocoTensorDataset(data["val_images"], data["val_annotations"])
+    if not len(validation):
+        raise ValueError("Validation dataset must contain images")
+    student = light_rcnn_from_config(
+        config, pretrained=not (saved or args.init_weights) and config["model"]["pretrained"]
+    )
+    if saved or args.init_weights:
+        initial = saved or torch.load(args.init_weights, map_location="cpu", weights_only=True)
+        if "config" in initial:
+            for key in ("model", "num_classes", "image_size"):
+                # Pretraining only changes initialization, not the saved architecture.
+                source, target = deepcopy(initial["config"][key]), deepcopy(config[key])
+                if key == "model":
+                    source.pop("pretrained", None)
+                    target.pop("pretrained", None)
+                if source != target:
+                    raise ValueError(f"Initial checkpoint has incompatible {key}")
+        student.load_state_dict(initial.get("model", initial))
+    kd = config.get("distillation", {})
+    trainer = student
+    if kd.get("enabled", False):
+        trainer = DistillationTrainer(
+            student,
+            build_teacher(config),
+            kd.get("feature_weight", 1.0),
+            kd.get("roi_kl_weight", 1.0),
+            kd.get("temperature", 2.0),
+        )
+    trainer.to(device)
+    parameters = [parameter for parameter in trainer.parameters() if parameter.requires_grad]
+    optimizer = torch.optim.AdamW(
+        parameters, lr=train["learning_rate"], weight_decay=train["weight_decay"]
+    )
+
+    def lr_factor(step):
+        warmup = min(1.0, (step + 1) / max(1, train["warmup_steps"]))
+        decay = sum(step >= milestone * len(loader) for milestone in train["lr_milestones"])
+        return warmup * train["lr_gamma"] ** decay
+
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_factor)
+    amp_enabled = device.type == "cuda" and train["amp"]
+    if hasattr(torch.amp, "GradScaler"):
+        scaler = torch.amp.GradScaler("cuda", enabled=amp_enabled)
+    else:  # torch 2.2 compatibility
+        scaler = torch.cuda.amp.GradScaler(enabled=amp_enabled)
+    start_epoch, global_step, best_ap, best_epoch = 0, 0, -math.inf, None
+    if saved:
+        optimizer.load_state_dict(saved["optimizer"])
+        scheduler.load_state_dict(saved["scheduler"])
+        scaler.load_state_dict(saved["scaler"])
+        if kd.get("enabled", False):
+            trainer.adapters.load_state_dict(saved["distillation_adapters"])
+        start_epoch, global_step = saved["epoch"], saved["global_step"]
+        best_ap, best_epoch = saved["best_ap"], saved["best_epoch"]
+        restore_rng(saved["rng_state"])
+        # Keep the historical winner when continuing in a different directory.
+        old_best = Path(args.resume).resolve().parent / "best.pth"
+        new_best = (output_dir / "best.pth").resolve()
+        if old_best != new_best and best_epoch is not None:
+            if not old_best.exists():
+                raise ValueError(
+                    "Copy best.pth alongside the resume checkpoint to preserve the winner"
+                )
+            shutil.copy2(old_best, new_best)
+    if start_epoch >= train["epochs"]:
+        raise ValueError("--epochs must exceed the number of completed epochs")
+    history = output_dir / "history.jsonl"
+    if saved and history.exists():
+        rows = [json.loads(line) for line in history.read_text().splitlines() if line.strip()]
+        history.write_text(
+            "".join(json.dumps(row) + "\n" for row in rows if row["epoch"] <= start_epoch),
+            encoding="utf-8",
+        )
+    (output_dir / "config.yaml").write_text(
+        yaml.safe_dump(config, sort_keys=False), encoding="utf-8"
+    )
+    print(
+        f"Training {len(dataset)} images on {device}; validation limit={train['val_limit']}; "
+        f"distillation={kd.get('enabled', False)}; epoch {start_epoch + 1}/{train['epochs']}"
+    )
+    for epoch in range(start_epoch, train["epochs"]):
+        trainer.train()
+        totals = defaultdict(float)
+        steps = 0
+        progress = tqdm(loader, desc=f"epoch {epoch + 1}/{train['epochs']}")
         for images, targets in progress:
             images = [image.to(device, non_blocking=True) for image in images]
-            targets = [{key: value.to(device, non_blocking=True) for key, value in target.items()}
-                       for target in targets]
+            targets = [
+                {key: value.to(device, non_blocking=True) for key, value in target.items()}
+                for target in targets
+            ]
             optimizer.zero_grad(set_to_none=True)
             with torch.autocast(device_type=device.type, enabled=scaler.is_enabled()):
-                losses = model(images, targets)
+                losses = trainer(images, targets)
                 loss = sum(losses.values())
+            if not torch.isfinite(loss):
+                raise FloatingPointError(f"Nonfinite loss at epoch {epoch + 1}: {losses}")
             scaler.scale(loss).backward()
+            scaler.unscale_(optimizer)
+            norm = torch.nn.utils.clip_grad_norm_(parameters, train.get("max_grad_norm", 10.0))
+            if not torch.isfinite(norm):
+                if not scaler.is_enabled():
+                    raise FloatingPointError("Nonfinite gradient norm")
+                scaler.update()  # GradScaler recorded overflow during unscale; skip this update.
+                continue
             scaler.step(optimizer)
             scaler.update()
-            running_loss += float(loss.detach())
+            scheduler.step()
+            global_step += 1
+            steps += 1
+            for key, value in losses.items():
+                totals[key] += float(value.detach())
+            totals["loss_total"] += float(loss.detach())
             progress.set_postfix(loss=f"{float(loss.detach()):.3f}")
-        checkpoint = {"model": model.state_dict(), "optimizer": optimizer.state_dict(),
-                      "epoch": epoch + 1, "config": config}
-        torch.save(checkpoint, output_dir / "last.pth")
-        print(f"epoch {epoch + 1}: mean loss={running_loss / max(len(loader), 1):.4f}")
-    print("Training finished. Add the planned COCO validation/evaluation step before treating a checkpoint as an accepted result.")
+        if not steps:
+            raise FloatingPointError("No optimizer updates completed this epoch")
+        metrics = None
+        improved = False
+        if (epoch + 1) % train["validate_every"] == 0 or epoch + 1 == train["epochs"]:
+            metrics = evaluate_coco(student, validation, device, train["val_limit"])
+            ap = metrics["AP_50_95"]
+            if not math.isfinite(ap) or ap < 0:
+                raise ValueError("Validation has no evaluable non-crowd ground truth")
+            improved = ap > best_ap
+            if improved:
+                best_ap, best_epoch = ap, epoch + 1
+        checkpoint = {
+            "format_version": 1,
+            "model": student.state_dict(),
+            "optimizer": optimizer.state_dict(),
+            "scheduler": scheduler.state_dict(),
+            "scaler": scaler.state_dict(),
+            "epoch": epoch + 1,
+            "global_step": global_step,
+            "config": config,
+            "best_ap": best_ap,
+            "best_epoch": best_epoch,
+            "metrics": metrics,
+            "rng_state": rng_state(),
+        }
+        if kd.get("enabled", False):
+            checkpoint["distillation_adapters"] = trainer.adapters.state_dict()
+        atomic_save(checkpoint, output_dir / "last.pth")
+        if improved:
+            atomic_save(checkpoint, output_dir / "best.pth")
+        record = {
+            "epoch": epoch + 1,
+            "global_step": global_step,
+            "losses": {key: value / steps for key, value in totals.items()},
+            "learning_rate": optimizer.param_groups[0]["lr"],
+            "validation": metrics,
+            "best_ap": best_ap if math.isfinite(best_ap) else None,
+            "best_epoch": best_epoch,
+        }
+        with history.open("a", encoding="utf-8") as file:
+            file.write(json.dumps(record, allow_nan=False) + "\n")
+        print(json.dumps(record, allow_nan=False))
+    print(
+        f"Finished. Best validation AP={best_ap:.6f} at epoch {best_epoch}; {output_dir / 'best.pth'}"
+    )
 
 
 if __name__ == "__main__":

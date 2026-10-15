@@ -4,7 +4,7 @@ Light R-CNN은 Faster R-CNN의 최적화 버전입니다. 표준 앵커 기반 R
 
 ## 현재 상태
 
-이 저장소는 초기 아키텍처와 학습 스캐폴드(scaffold)를 포함하고 있습니다. 학습된 Light R-CNN 가중치, 연결된 교사/학생(teacher/student) 학습 파이프라인, TensorRT RoIAlign/NMS 플러그인 또는 검증된 COCO/T4 지표는 아직 포함되어 있지 않습니다. COCO AP 평가기가 포함되어 있습니다. COCO AP ≥ 60 및 배치-1 T4 지연 시간 ≤ 15 ms는 프로젝트의 목표 수치이며, 현재 달성된 결과가 아닙니다. 자세한 내용은 [docs/ROADMAP.md](https://www.google.com/search?q=docs/ROADMAP.md)를 참조하십시오.
+이 저장소는 경량 탐지 모델, 검증 AP 기반 최적 모델 저장, 학습 재개 및 선택적 교사/학생 지식 증류를 포함합니다. 학습된 Light R-CNN 가중치, TensorRT RoIAlign/NMS 플러그인 또는 검증된 COCO/T4 지표는 아직 포함되어 있지 않습니다. CPU 합성 데이터 통합 테스트로 학습·재개·증류 경로를 검증하며, 실제 COCO 성능은 별도 학습과 평가가 필요합니다. COCO AP ≥ 60 및 배치-1 T4 지연 시간 ≤ 15 ms는 프로젝트의 목표 수치이며, 현재 달성된 결과가 아닙니다. 자세한 내용은 [docs/ROADMAP.md](docs/ROADMAP.md)를 참조하십시오.
 
 성능 비교를 위해 torchvision의 COCO 사전 학습 모델인 ResNet-50-FPN Faster R-CNN을 기본 베이스라인으로 사용하며, ImageNet 사전 학습 MobileNetV3 백본에서 학습된 Light R-CNN, 그리고 기본 참조선으로 YOLO26 nano(`yolo26n.pt`)를 사용합니다. 모든 모델은 기본적으로 640 픽셀 입력과 FP32 프레임워크 추론을 사용합니다. YOLO26은 NMS가 없는 엔드투엔드 추론을 선택적으로 지원하므로, 평가 시 선택한 체크포인트의 추론 모드를 기록해야 합니다. [공식 YOLO26 문서](https://docs.ultralytics.com/models/yolo26/)
 
@@ -22,7 +22,7 @@ COCO 이미지는 `data/coco/images/{train2017,val2017}`, 주석은 `data/coco/a
 
 ## 현재 진입점 (Entry points)
 
-COCO 검증 데이터와 `outputs/coco/last.pth`가 준비되어 있으면 아래 한 명령으로 Faster R-CNN → Light R-CNN → YOLO26 순서로 COCO 평가와 지연 시간 측정을 실행한 뒤 대시보드를 엽니다. 아직 Light R-CNN 가중치를 학습하지 않았다면 `--train-light`를 추가하십시오. CPU 학습과 전체 COCO 평가는 오래 걸릴 수 있습니다.
+COCO 검증 데이터와 `outputs/coco/best.pth`가 준비되어 있으면 아래 한 명령으로 Faster R-CNN → Light R-CNN → YOLO26 순서로 COCO 평가와 지연 시간 측정을 실행한 뒤 대시보드를 엽니다. 아직 Light R-CNN 가중치를 학습하지 않았다면 `--train-light`를 추가하십시오. CPU 학습과 전체 COCO 평가는 오래 걸릴 수 있습니다.
 
 ```powershell
 python scripts/run_comparison.py --device cpu
@@ -42,10 +42,10 @@ python scripts/run_comparison.py --device cpu --inference-only --source data/sam
 
 ```powershell
 python scripts/train.py --config configs/coco.yaml
-python scripts/export_onnx.py --weights outputs/coco/last.pth
+python scripts/export_onnx.py --weights outputs/coco/best.pth
 ```
 
-학습 진입점은 torchvision의 Faster R-CNN RPN/RoI 손실 함수를 사용하며 `last.pth`를 기록합니다. 학습 재개(resume) 기능이나 검증 AP 보고 기능은 아직 지원하지 않습니다. ONNX 내보내기는 고정 크기(fixed-shape)의 전체 탐지 경로를 지원합니다. 타겟 TensorRT 버전에 대한 RoIAlign 및 NMS 지원 검증은 [deploy/tensorrt/README.md](https://www.google.com/search?q=deploy/tensorrt/README.md)에 설명된 절차를 따르십시오.
+학습 진입점은 torchvision의 Faster R-CNN RPN/RoI 손실 함수를 사용합니다. 매 epoch `last.pth`를 저장하고, 검증 COCO AP@[.50:.95]가 개선되면 `best.pth`를 저장합니다. `--resume`으로 학습을 재개하고 `--distill`로 지식 증류를 활성화합니다. 실행 방법과 저장 상태는 [학습 안내](docs/TRAINING.md)를 참조하십시오. ONNX 내보내기는 고정 크기(fixed-shape)의 전체 탐지 경로를 지원합니다. 타겟 TensorRT 버전에 대한 RoIAlign 및 NMS 지원 검증은 [deploy/tensorrt/README.md](deploy/tensorrt/README.md)에 설명된 절차를 따르십시오.
 
 YOLO26 스크립트는 JSON 타이밍 결과를 저장하고, 평가 스크립트는 COCO 주석에서 YOLO 형식 검증 레이블을 생성해 COCO 지표를 계산합니다. Faster R-CNN 벤치마크는 두 PyTorch 모델의 배치-1 p50/p95 지연 시간을 JSON으로 저장합니다. `streamlit run dashboard/app.py`로 세 모델 결과 대시보드를 실행할 수 있습니다. 최종 T4 비교는 가능한 경우 세 모델 모두 같은 정밀도와 측정 범위로 반복해야 합니다.
 
@@ -57,4 +57,4 @@ YOLO26 스크립트는 JSON 타이밍 결과를 저장하고, 평가 스크립�
 * 추론 시 Light R-CNN의 RPN 제안(proposal) 개수는 300개로 제한됩니다(기본 Faster R-CNN은 표준 설정을 유지).
 * BiFPN 및 깊이별 분리 합성곱(separable convolutions)을 적용하여 다중 스케일 특징 병합(feature-fusion) 연산 비용을 감소시킵니다.
 * FPN 특징은 RoIAlign 단계 이전에 10채널로 투영되며, RoI 박스 헤드에는 전역 평균 풀링(global average pooling)이 사용됩니다.
-* 지식 증류 기본 요소(Distillation primitives)는 `src/light_rcnn/distillation.py`에 작성되어 있으나, 기본 Faster R-CNN 교사 모델과 학생 모델의 제안(proposal) 정렬 로직은 아직 학습 파이프라인에 연결되어야 하는 상태입니다.
+* 지식 증류는 `src/light_rcnn/distillation.py`에서 같은 변환 이미지와 같은 sampled RoI를 사용합니다. stride 8/16/32 특징을 학습 가능한 채널 투영으로 정렬하고, 특징 손실과 temperature-scaled RoI KL 손실을 지도학습 손실에 더합니다. 교사 모델은 eval 상태와 gradient 비활성화를 유지하며 최종 추론 모델에 포함되지 않습니다.

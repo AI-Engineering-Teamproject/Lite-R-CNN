@@ -11,6 +11,7 @@ from PIL import Image
 from torchvision.transforms.functional import to_tensor
 
 from light_rcnn.model import build_detector
+from light_rcnn.model.detector import light_rcnn_from_config
 
 
 def main():
@@ -19,31 +20,46 @@ def main():
     parser.add_argument("--weights")
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--size", type=int, default=640)
-    parser.add_argument("--source", required=True, help="COCO image directory used by all compared models")
+    parser.add_argument(
+        "--source", required=True, help="COCO image directory used by all compared models"
+    )
     parser.add_argument("--image-count", type=int, default=64)
     parser.add_argument("--warmup", type=int, default=50)
     parser.add_argument("--iterations", type=int, default=200)
     parser.add_argument("--output")
     args = parser.parse_args()
     device = torch.device(args.device)
-    if args.model == "light_rcnn":
+    checkpoint = (
+        torch.load(args.weights, map_location="cpu", weights_only=True) if args.weights else {}
+    )
+    if args.model == "light_rcnn" and "config" in checkpoint:
+        config = dict(checkpoint["config"], image_size=args.size)
+        model = light_rcnn_from_config(config)
+    elif args.model == "light_rcnn":
         model = build_detector(
-            args.model, pretrained_backbone=args.weights is None,
-            min_size=args.size, max_size=args.size,
+            args.model,
+            pretrained_backbone=args.weights is None,
+            min_size=args.size,
+            max_size=args.size,
         )
     else:
         model = build_detector(
-            args.model, pretrained=args.weights is None, num_classes=91,
-            min_size=args.size, max_size=args.size,
+            args.model,
+            pretrained=args.weights is None,
+            num_classes=91,
+            min_size=args.size,
+            max_size=args.size,
         )
     model = model.to(device).eval()
     if args.weights:
-        checkpoint = torch.load(args.weights, map_location="cpu", weights_only=True)
         model.load_state_dict(checkpoint.get("model", checkpoint))
     source = Path(args.source)
     candidates = [source] if source.is_file() else source.rglob("*")
-    paths = sorted(path for path in candidates
-                   if path.suffix.lower() in {".jpg", ".jpeg", ".png", ".bmp", ".webp"})[:args.image_count]
+    paths = sorted(
+        path
+        for path in candidates
+        if path.suffix.lower() in {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
+    )[: args.image_count]
     if not paths:
         raise SystemExit(f"No benchmark images found under {args.source}")
     images = [to_tensor(Image.open(path).convert("RGB")).to(device) for path in paths]

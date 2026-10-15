@@ -9,7 +9,6 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -29,7 +28,7 @@ def main() -> None:
     parser.add_argument("--inference-only", action="store_true",
                         help="Skip COCO AP evaluation; only benchmark a shared image/file folder")
     parser.add_argument("--yolo-weights", default="yolo26n.pt")
-    parser.add_argument("--light-weights", default="outputs/coco/last.pth")
+    parser.add_argument("--light-weights", default="outputs/coco/best.pth")
     parser.add_argument("--train-light", action="store_true", help="Train Light R-CNN before comparing")
     parser.add_argument("--limit", type=int, default=0, help="Limit Faster/Light COCO evaluation images")
     parser.add_argument("--warmup", type=int, default=5)
@@ -65,7 +64,7 @@ def main() -> None:
                 "--train-light also requires the COCO train split:\n  - "
                 + "\n  - ".join(missing_train)
             )
-        run_step("Train Light R-CNN", [sys.executable, "scripts/train.py", "--config", args.config])
+        run_step("Train Light R-CNN", [sys.executable, "scripts/train.py", "--config", args.config, "--device", args.device])
     if not light_weights.is_file():
         if args.inference_only:
             print(
