@@ -40,7 +40,9 @@ def main():
     if args.weights:
         checkpoint = torch.load(args.weights, map_location="cpu", weights_only=True)
         model.load_state_dict(checkpoint.get("model", checkpoint))
-    paths = sorted(path for path in Path(args.source).rglob("*")
+    source = Path(args.source)
+    candidates = [source] if source.is_file() else source.rglob("*")
+    paths = sorted(path for path in candidates
                    if path.suffix.lower() in {".jpg", ".jpeg", ".png", ".bmp", ".webp"})[:args.image_count]
     if not paths:
         raise SystemExit(f"No benchmark images found under {args.source}")

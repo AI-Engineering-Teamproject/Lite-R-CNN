@@ -30,7 +30,13 @@ python scripts/run_comparison.py --device cpu
 python scripts/run_comparison.py --device cpu --train-light
 ```
 
-실행 중 하나라도 실패하면 뒤 단계와 대시보드 실행은 중단됩니다. 반복 횟수와 예열 횟수는 `--iterations`, `--warmup`으로 조절하고, 빠른 부분 평가가 필요하면 `--limit`으로 세 모델의 평가 이미지 수를 함께 제한할 수 있습니다. 부분 평가 결과는 전체 COCO 평가 결과와 구분해서 해석하십시오. 결과 JSON은 `outputs/`에 저장됩니다.
+COCO 주석 없이 동일한 이미지 한 장(또는 이미지 폴더)으로 지연 시간만 먼저 확인하려면 `--inference-only --source`를 사용합니다. 이 모드는 mAP를 계산하지 않으므로 대시보드에는 지연 시간만 표시됩니다. Lite R-CNN 체크포인트가 없으면 ImageNet 사전학습 백본과 학습되지 않은 검출 헤드로 속도만 측정합니다. 이 경우 Lite R-CNN의 탐지 결과나 정확도는 비교할 수 없습니다.
+
+```powershell
+python scripts/run_comparison.py --device cpu --inference-only --source data/samples/test.jpg
+```
+
+실행 중 하나라도 실패하면 뒤 단계와 대시보드 실행은 중단됩니다. 반복 횟수와 예열 횟수는 `--iterations`, `--warmup`으로 조절하고, 빠른 부분 평가가 필요하면 `--limit`으로 세 모델의 평가 이미지 수를 함께 제한할 수 있습니다. 부분 평가 결과는 전체 COCO 평가 결과와 구분해서 해석하십시오. 결과 JSON은 실행별로 `outputs/comparison_runs/` 아래에 저장됩니다.
 
 개별 학습, 평가, ONNX 내보내기 명령은 아래 스크립트를 직접 실행할 수 있습니다.
 

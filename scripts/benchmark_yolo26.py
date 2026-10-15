@@ -38,7 +38,9 @@ def main():
     parser.add_argument("--output", default="outputs/benchmark_yolo26.json")
     args = parser.parse_args()
 
-    paths = sorted(path for path in Path(args.source).rglob("*") if path.suffix.lower() in IMAGE_EXTENSIONS)
+    source = Path(args.source)
+    candidates = [source] if source.is_file() else source.rglob("*")
+    paths = sorted(path for path in candidates if path.suffix.lower() in IMAGE_EXTENSIONS)
     if not paths:
         raise SystemExit(f"No image files found under {args.source}")
     paths = paths[:args.image_count]

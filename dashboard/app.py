@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from pathlib import Path
 
@@ -96,7 +97,7 @@ st.caption("바닐라 Faster R-CNN · Light R-CNN · YOLO26 — COCO 정확도�
 
 with st.sidebar:
     st.header("결과 불러오기")
-    output_dir = Path(st.text_input("결과 폴더", value="outputs"))
+    output_dir = Path(st.text_input("결과 폴더", value=os.environ.get("LIGHT_RCNN_RESULTS_DIR", "outputs")))
     uploaded = st.file_uploader("JSON 결과 파일 추가", type="json", accept_multiple_files=True)
     st.caption("평가/벤치마크 스크립트가 outputs 폴더에 저장한 JSON을 자동으로 읽습니다.")
 
