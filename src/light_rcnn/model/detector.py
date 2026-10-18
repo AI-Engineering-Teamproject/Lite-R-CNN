@@ -53,16 +53,24 @@ class CompressedMultiScaleRoIAlign(MultiScaleRoIAlign):
         return super().forward(projected, boxes, image_shapes)
 
 
-class GlobalAverageRoIHead(nn.Module):
-    """Replace the conventional large two-FC RoI box head with GAP and a narrow vector."""
+class LightRoIHead(nn.Module):
+    """Pool coarse spatial RoI cues and optionally project them with one small FC layer."""
 
-    def __init__(self, channels: int = 10):
+    def __init__(self, channels: int = 10, output_channels: int = 128, pool_size: int = 3):
         super().__init__()
-        self.pool = nn.AdaptiveAvgPool2d(1)
-        self.out_channels = channels
+        if pool_size < 1 or output_channels < 0:
+            raise ValueError("RoI head dimensions must be positive (output_channels may be 0)")
+        self.pool = nn.AdaptiveAvgPool2d(pool_size)
+        flattened_channels = channels * pool_size * pool_size
+        self.projection = (
+            nn.Sequential(nn.Linear(flattened_channels, output_channels), nn.ReLU(inplace=True))
+            if output_channels
+            else nn.Identity()
+        )
+        self.out_channels = output_channels or flattened_channels
 
     def forward(self, pooled_features: torch.Tensor) -> torch.Tensor:
-        return self.pool(pooled_features).flatten(start_dim=1)
+        return self.projection(self.pool(pooled_features).flatten(start_dim=1))
 
 
 class LightRCNN(FasterRCNN):
@@ -75,6 +83,8 @@ class LightRCNN(FasterRCNN):
         bifpn_channels: int = 96,
         roi_channels: int = 10,
         roi_size: int = 7,
+        roi_head_dim: int = 128,
+        roi_head_pool_size: int = 3,
         rpn_pre_nms_topk_test: int = 1000,
         rpn_post_nms_topk_test: int = 300,
         min_size: int = 640,
@@ -87,8 +97,8 @@ class LightRCNN(FasterRCNN):
         )
         rpn_head = RPNHead(bifpn_channels, anchors.num_anchors_per_location()[0])
         roi_pool = CompressedMultiScaleRoIAlign(bifpn_channels, roi_channels, roi_size)
-        box_head = GlobalAverageRoIHead(roi_channels)
-        box_predictor = FastRCNNPredictor(roi_channels, num_classes)
+        box_head = LightRoIHead(roi_channels, roi_head_dim, roi_head_pool_size)
+        box_predictor = FastRCNNPredictor(box_head.out_channels, num_classes)
         super().__init__(
             backbone,
             num_classes=None,
@@ -142,6 +152,9 @@ def light_rcnn_from_config(config: dict, *, pretrained: bool = False) -> LightRC
         bifpn_channels=model["bifpn_channels"],
         roi_channels=model["roi_channels"],
         roi_size=model["roi_size"],
+        # Configs/checkpoints created before the spatial head retain their original GAP shape.
+        roi_head_dim=model.get("roi_head_dim", 0),
+        roi_head_pool_size=model.get("roi_head_pool_size", 1),
         rpn_pre_nms_topk_test=model["rpn_pre_nms_topk_test"],
         rpn_post_nms_topk_test=model["rpn_post_nms_topk_test"],
         min_size=config["image_size"],

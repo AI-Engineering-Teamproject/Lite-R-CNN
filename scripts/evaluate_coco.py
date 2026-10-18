@@ -20,6 +20,7 @@ def main():
     parser.add_argument("--weights")
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--limit", type=int, default=0, help="0 evaluates the full validation set")
+    parser.add_argument("--batch-size", type=int, help="Evaluation batch size; defaults to config")
     parser.add_argument("--output")
     args = parser.parse_args()
     if args.model == "light_rcnn" and not args.weights:
@@ -52,7 +53,18 @@ def main():
         "model": args.model,
         "weights": args.weights or "torchvision_coco_v1",
         "image_size": model.transform.max_size,
-        **evaluate_coco(model, dataset, device, args.limit),
+        **evaluate_coco(
+            model,
+            dataset,
+            device,
+            args.limit,
+            subset_seed=config.get("seed", 0),
+            batch_size=(
+                args.batch_size
+                if args.batch_size is not None
+                else config.get("train", {}).get("val_batch_size", 1)
+            ),
+        ),
     }
     output = Path(args.output or f"outputs/{args.model}_coco_metrics.json")
     output.parent.mkdir(parents=True, exist_ok=True)

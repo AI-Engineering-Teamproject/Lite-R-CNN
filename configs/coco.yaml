@@ -14,6 +14,8 @@ model:
   bifpn_channels: 96
   roi_channels: 10
   roi_size: 7
+  roi_head_dim: 128 # preserve coarse spatial cues before class/box prediction
+  roi_head_pool_size: 3
   rpn_pre_nms_topk_test: 1000
   rpn_post_nms_topk_test: 300
 train:
@@ -25,12 +27,15 @@ train:
   amp: true
   output_dir: outputs/coco
   validate_every: 1
+  val_batch_size: 4
   warmup_steps: 500
   lr_milestones: [24, 32]
   lr_gamma: 0.1
   max_grad_norm: 10.0
   train_limit: 0 # smoke tests only; 0 uses all images
   val_limit: 0 # best.pth uses AP on this fixed subset; 0 uses full val2017
+  horizontal_flip_prob: 0.5
+  subset_selection: seeded_random
 distillation:
   enabled: false
   teacher:

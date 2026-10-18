@@ -5,7 +5,7 @@
 - MobileNetV3-Large features at strides 8/16/32.
 - Repeated normalized bidirectional BiFPN fusion with depthwise separable convolutions.
 - Standard Faster R-CNN anchor-based RPN and two-stage RoI heads.
-- MobileNetV3 + BiFPN student backbone, smaller RPN proposal budget, 10-channel projection before multi-scale RoIAlign, and GAP RoI head.
+- MobileNetV3 + BiFPN student backbone, smaller RPN proposal budget, 10-channel projection before multi-scale RoIAlign, and a configurable GAP/spatial single-FC RoI head; the GAP model remains the default until full-validation ablation supports a change.
 - COCO dataset adapter and shared official AP evaluator, resumable training with best-AP selection, aligned teacher/student distillation, fixed-shape ONNX export entry point, and PyTorch timing scripts.
 
 ## Comparison roles

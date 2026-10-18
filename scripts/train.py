@@ -47,6 +47,15 @@ def atomic_save(checkpoint, path):
     temporary.replace(path)
 
 
+def deterministic_subset(dataset, limit, seed):
+    """Choose a reproducible random subset without consuming the training RNG."""
+    if limit <= 0 or limit >= len(dataset):
+        return dataset
+    generator = torch.Generator().manual_seed(seed)
+    indices = torch.randperm(len(dataset), generator=generator)[:limit].tolist()
+    return Subset(dataset, indices)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", help="Defaults to configs/coco.yaml, or saved config on resume")
@@ -55,17 +64,28 @@ def main():
         "--resume", help="Restore the complete training state at an epoch boundary"
     )
     startup.add_argument("--init-weights", help="Initialize student weights for a new run, e.g. KD")
-    parser.add_argument(
+    distillation = parser.add_mutually_exclusive_group()
+    distillation.add_argument(
         "--distill", action="store_true", help="Enable feature and RoI distillation"
     )
-    parser.add_argument("--device")
+    distillation.add_argument(
+        "--distill-roi-only",
+        action="store_true",
+        help="Distill RoI class logits only; useful for a classification-focused experiment",
+    )
+    parser.add_argument(
+        "--device",
+        help="Training device: cpu, cuda, or cuda:0. CPU training is supported but much slower.",
+    )
     parser.add_argument("--epochs", type=int, help="Total epoch count, including completed epochs")
     parser.add_argument("--output-dir")
     parser.add_argument(
-        "--train-limit", type=int, default=None, help="First N training images; 0=all"
+        "--train-limit", type=int, default=None,
+        help="Deterministic random subset of N training images; 0=all",
     )
     parser.add_argument(
-        "--val-limit", type=int, default=None, help="First N validation images; 0=all"
+        "--val-limit", type=int, default=None,
+        help="Deterministic random subset of N validation images; 0=all",
     )
     parser.add_argument("--validate-every", type=int)
     args = parser.parse_args()
@@ -77,8 +97,11 @@ def main():
             config = yaml.safe_load(file)
     else:
         config = deepcopy(saved["config"])
-    if args.distill:
-        config.setdefault("distillation", {})["enabled"] = True
+    if args.distill or args.distill_roi_only:
+        kd = config.setdefault("distillation", {})
+        kd["enabled"] = True
+        if args.distill_roi_only:
+            kd["feature_weight"] = 0.0
     train = config["train"]
     if args.device is not None:
         config["device"] = args.device
@@ -94,19 +117,27 @@ def main():
             train[key] = argument
         train.setdefault(key, 0)
     train.setdefault("validate_every", 1)
+    train.setdefault("val_batch_size", 1)
     train.setdefault("warmup_steps", 500)
     train.setdefault("lr_milestones", [24, 32])
     train.setdefault("lr_gamma", 0.1)
     train.setdefault("max_grad_norm", 10.0)
+    train.setdefault("horizontal_flip_prob", 0.0)
+    train.setdefault("subset_selection", "seeded_random")
+    if train["train_limit"]:
+        subset_steps = math.ceil(train["train_limit"] / train["batch_size"])
+        train["warmup_steps"] = min(train["warmup_steps"], max(1, subset_steps // 5))
     if (
         train["epochs"] < 1
         or train["batch_size"] < 1
         or train["workers"] < 0
         or train["validate_every"] < 1
+        or train["val_batch_size"] < 1
         or train["train_limit"] < 0
         or train["val_limit"] < 0
         or train["warmup_steps"] < 0
         or train["max_grad_norm"] <= 0
+        or not 0.0 <= train["horizontal_flip_prob"] <= 1.0
     ):
         raise ValueError("Invalid epoch, batch, worker, validation or subset settings")
     if saved:
@@ -127,9 +158,16 @@ def main():
             "val_limit",
             "validate_every",
             "max_grad_norm",
+            "horizontal_flip_prob",
         ):
             if train.get(key) != saved["config"]["train"].get(key):
                 raise ValueError(f"Cannot change train.{key} on resume")
+        if (train["train_limit"] or train["val_limit"]) and (
+            saved["config"]["train"].get("subset_selection") != train["subset_selection"]
+        ):
+            raise ValueError(
+                "Subset selection changed; start a new output directory so resume uses the same images"
+            )
     output_dir = Path(train["output_dir"])
     output_dir.mkdir(parents=True, exist_ok=True)
     if not saved and (output_dir / "last.pth").exists():
@@ -137,11 +175,28 @@ def main():
     seed_everything(config["seed"])
     device = torch.device(config["device"])
     if device.type == "cuda" and not torch.cuda.is_available():
-        raise RuntimeError("CUDA unavailable; use --device cpu for a smoke test")
+        raise RuntimeError("CUDA unavailable; use --device cpu (slower; see configs/coco_cpu.yaml)")
     data = config["data"]
-    dataset = CocoTensorDataset(data["train_images"], data["train_annotations"])
+    required_data = (
+        ("train_images", data["train_images"]),
+        ("train_annotations", data["train_annotations"]),
+        ("val_images", data["val_images"]),
+        ("val_annotations", data["val_annotations"]),
+    )
+    missing = [f"{name}: {path}" for name, path in required_data if not Path(path).exists()]
+    if missing:
+        raise FileNotFoundError(
+            "COCO training data is incomplete. Missing paths:\n  - "
+            + "\n  - ".join(missing)
+            + "\nRun scripts/prepare_hf_coco.py first or correct the paths in the config."
+        )
+    dataset = CocoTensorDataset(
+        data["train_images"],
+        data["train_annotations"],
+        horizontal_flip_prob=train["horizontal_flip_prob"],
+    )
     if train["train_limit"]:
-        dataset = Subset(dataset, range(min(len(dataset), train["train_limit"])))
+        dataset = deterministic_subset(dataset, train["train_limit"], config["seed"])
     if not len(dataset):
         raise ValueError("Training dataset must contain images")
     loader = DataLoader(
@@ -271,7 +326,14 @@ def main():
         metrics = None
         improved = False
         if (epoch + 1) % train["validate_every"] == 0 or epoch + 1 == train["epochs"]:
-            metrics = evaluate_coco(student, validation, device, train["val_limit"])
+            metrics = evaluate_coco(
+                student,
+                validation,
+                device,
+                train["val_limit"],
+                subset_seed=config["seed"],
+                batch_size=train["val_batch_size"],
+            )
             ap = metrics["AP_50_95"]
             if not math.isfinite(ap) or ap < 0:
                 raise ValueError("Validation has no evaluable non-crowd ground truth")
