@@ -98,6 +98,6 @@ jobs:
           path: |
             outputs/ci/junit.xml
             outputs/ci/installed-requirements.txt
-            outputs/ci/pytest/test_actual_lite_checkpoint_cli*/result/
+            outputs/ci/pytest/test_actual_lite_checkpoint_*/result/
           if-no-files-found: warn
           retention-days: 7
