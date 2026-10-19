@@ -25,6 +25,8 @@ def main() -> None:
     parser.add_argument("--device", default="cpu", help="PyTorch device; defaults to cpu")
     parser.add_argument("--source", default="data/coco/images/val2017",
                         help="Shared image file or folder used for all model benchmarks")
+    parser.add_argument("--single-image", metavar="IMAGE",
+                        help="Run the three latency benchmarks on exactly this image (skips COCO accuracy evaluation)")
     parser.add_argument("--inference-only", action="store_true",
                         help="Skip COCO AP evaluation; only benchmark a shared image/file folder")
     parser.add_argument("--yolo-weights", default="yolo26n.pt")
@@ -36,6 +38,12 @@ def main() -> None:
     parser.add_argument("--image-count", type=int, default=16)
     parser.add_argument("--no-dashboard", action="store_true", help="Write reports without launching Streamlit")
     args = parser.parse_args()
+
+    if args.single_image and args.source != "data/coco/images/val2017":
+        parser.error("use either --single-image or --source, not both")
+    if args.single_image:
+        args.source = args.single_image
+        args.inference_only = True
 
     config_path = (ROOT / args.config).resolve()
     source = Path(args.source)
@@ -138,7 +146,9 @@ def main() -> None:
     ],)
 
     if args.no_dashboard:
-        print(f"\nReports saved to {report_dir}. Run Streamlit with this folder selected to view them.")
+        if args.single_image:
+            print("\nSingle-image mode reports inference latency only; COCO accuracy evaluation was skipped.")
+        print(f"Reports saved to {report_dir}. Run Streamlit with this folder selected to view them.")
         return
 
     server = subprocess.Popen(

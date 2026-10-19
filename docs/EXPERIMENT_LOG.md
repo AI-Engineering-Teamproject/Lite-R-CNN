@@ -6,25 +6,41 @@ RTX 4090의 첫 전체 COCO 학습 결과(AP@[.50:.95] 최고 25.66%, epoch 27)�
 
 첫 36 epoch GPU 전체 학습 결과(최고 AP 25.66%, AP50 45.33%, AP75 25.77%, AP_small 9.8%) 및 단일 이미지(`000000000776.jpg`) 추론에서 관찰된 다중 부위 중복 검출(teddy bear 10개 검출) 문제를 분석하고 다음 개선을 단행했습니다.
 
-1. **RoI 채널 병목 해소:** 10채널 극단적 압축을 64채널로 확대하고, 3×3 pooling 대신 7×7 RoIAlign 공간 해상도를 유지하며, FC 차원을 128에서 256으로 확장했습니다. 모델 파라미터는 약 4.3M로 경량성을 유지합니다.
+1. **RoI 채널 병목 해소:** 10채널 극단적 압축을 64채널로 확대하고, 3×3 pooling 대신 7×7 RoIAlign 공간 해상도를 유지하며, FC 차원을 128에서 256으로 확장했습니다. 모델 파라미터는 약 4.19M로 경량성을 유지합니다.
 2. **RPN 앵커 스케일 확장:** 16px 미만 소형 객체 및 256px 초과 대형 객체 검출을 위해 앵커 크기를 `((16, 32, 64), (64, 128, 256), (128, 256, 512))`로 확장했습니다.
 3. **Hard Negative 학습 강화:** RoI 배치 크기를 128에서 torchvision 표준인 512로 상향하여, 부위 오버랩(IoU 0.2~0.4)을 negative로 학습하도록 보완했습니다.
 4. **추론 후처리 개선:** `scripts/predict.py`에 NMS 임계값(`--nms-threshold 0.45`)과 부위 포함 억제(`--containment-threshold 0.75`)를 도입하여 동일 클래스 내 부위 중복 박스를 제거했습니다.
 
+### 전체 COCO 학습 비교
+
+두 run 모두 COCO 2017 train 118,287장으로 36 epoch 학습하고, 매 epoch 전체 val2017 5,000장으로 평가했습니다. v2는 v1의 여러 구조·학습 설정을 동시에 바꾼 후속 run이므로, AP 상승을 anchor나 RoI 변경 하나의 효과로 분리해 해석하지 않습니다.
+
+| Run | 주요 구조 | 파라미터 | 최고 epoch | 최고 AP@[.50:.95] | 마지막 AP |
+|---|---|---:|---:|---:|---:|
+| `coco_4090` (v1) | RoI 10채널, 3×3 pooling, FC 128; anchor 32–256 | 3,320,705 | 27 | 25.66% | 25.47% |
+| `coco_4090_v2` | RoI 64채널, 7×7 pooling, FC 256; anchor 16–512; RoI 학습 샘플 512 | 4,187,700 | 25 | **28.82%** | **28.48%** |
+
+v2 최고점은 v1보다 **3.17 AP 포인트** 높고 파라미터는 약 26% 늘었습니다. 향상 폭은 중간·큰 객체에서 더 컸으며, v2 최고점의 AP-small은 10.99%로 작은 객체가 계속 주요 약점입니다. 두 run 모두 최고점 이후 AP가 거의 평탄해져 inference에는 각 run의 `best.pth`를 사용합니다. 프로젝트의 AP 60 목표는 아직 달성하지 않았고, RTX T4 지연 시간 및 비교 baseline 측정도 남아 있습니다.
+
+원시 기록은 각 run의 `config.yaml`, `history.jsonl`, `RESULTS.md`에 보존합니다. epoch별 AP와 train loss 그래프는 다음 명령으로 다시 생성할 수 있으며, 현재 생성된 [학습 곡선](figures/coco_training_curves.svg)도 함께 관리합니다.
+
+![v1과 v2의 COCO AP 및 train loss 학습 곡선](figures/coco_training_curves.svg)
+
+```bash
+python scripts/plot_training_history.py
+```
+
 ## 2026-10-19 — COCO 객체 크기 분포와 validation 처리량
 
-로컬 COCO 2017 train annotation 849,947개의 non-crowd 유효 box를 입력 최대 변 640 기준으로 정규화해 `sqrt(width × height)`를 요약했습니다. 백분위수는 10%=14.4px, 25%=26.8px, 50%=58.6px, 75%=133.3px, 90%=257.2px, 95%=347.4px, 99%=505.1px였습니다. 현재 RPN anchor base sizes 32–256px는 중앙 분포에는 맞지만 작은 25% 구간과 큰 10% 구간에는 확장 여지가 있습니다. 후속 후보로 P3에 16px, P5에 512px anchor를 추가하는 ablation을 제안합니다. 이 통계는 anchor/proposal recall이나 AP가 아니므로 기본 anchor를 아직 바꾸지 않았고, GPU 학습 후 full-val AP와 proposal recall로 판단해야 합니다.
+로컬 COCO 2017 train annotation 849,947개의 non-crowd 유효 box를 입력 최대 변 640 기준으로 정규화해 `sqrt(width × height)`를 요약했습니다. 백분위수는 10%=14.4px, 25%=26.8px, 50%=58.6px, 75%=133.3px, 90%=257.2px, 95%=347.4px, 99%=505.1px였습니다. v1의 anchor base sizes 32–256px는 작은 25% 구간과 큰 10% 구간에 확장 여지가 있었습니다. v2에서는 P3 16px와 P5 512px를 포함한 anchor 설정을 학습에 적용했습니다. v2의 AP-small 향상은 0.93 포인트에 그쳤고 여러 설정이 함께 바뀌었으므로, anchor 효과를 별도 ablation으로 확인해야 합니다. 이 box 크기 통계 자체는 anchor/proposal recall이나 AP가 아닙니다.
 
 매 epoch COCO validation의 작은 batch 호출 오버헤드를 줄일 수 있도록 평가 batch size를 설정화했습니다. CUDA 기본 설정은 batch 4, CPU 설정은 batch 1이며 결과 JSON/history에 `evaluation_batch_size`를 기록합니다. 배치 추론의 실제 시간 개선과 AP 차이는 아직 측정하지 않았습니다.
 
-## RTX 4090 학습 인계 상태 (2026-10-19)
+## RTX 4090 학습 상태 (2026-10-19)
 
-- 구현·학습 파이프라인과 설정, COCO 준비 스크립트, 이전 소규모 진단 결과를 현재 상태로 저장했습니다.
-- 전체 COCO 학습은 아직 실행하지 않았고, 새 spatial RoI head의 전체 validation AP 성과도 없습니다. GPU 환경에서 새 run으로 시작해야 합니다.
-- 권장 시작 명령: `python scripts/train.py --config configs/coco.yaml --device cuda --epochs 36 --output-dir outputs/coco_4090`
-- 재개 명령: `python scripts/train.py --resume outputs/coco_4090/last.pth --epochs 36`
-- 현재 CUDA 미사용 CPU 기준 36 epoch 시간은 대략 70일 이상으로 추정했으며, RTX 4090의 실제 시간은 아직 측정하지 않았습니다.
-- COCO 데이터, 가상환경, 체크포인트와 실행 산출물은 Git에 넣지 않습니다. GPU 환경에 데이터 준비 스크립트로 데이터셋을 내려받고, 학습 후 `best.pth`, `history.jsonl`, config를 별도 결과물로 보존합니다.
+- v1과 v2 전체 COCO 학습을 RTX 4090에서 완료했고, 각 run의 최고 checkpoint, 마지막 checkpoint, 설정, epoch 기록 및 결과 요약을 `outputs/coco_4090/`과 `outputs/coco_4090_v2/`에 보존했습니다.
+- 이후 구조 변경은 새 output directory에서 실행하고 동일한 full-val 평가 지표를 기록합니다. AP만으로 개선을 판단하지 않도록 파라미터 수, 객체 크기별 AP/AR, 추론 사례와 batch-1 latency도 함께 추적합니다.
+- 재개는 해당 run의 `last.pth`에서 이어가고, 추론/비교는 해당 run의 `best.pth`를 사용합니다.
 
 이 문서는 Lite R-CNN 설계와 학습 실험만 기록합니다. Faster R-CNN 및 YOLOv26 공통 벤치마크는 팀원의 결과와 별도로 관리합니다.
 

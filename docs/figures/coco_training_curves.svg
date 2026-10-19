@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="700" viewBox="0 0 1200 700">
+<style>text{font-family:Arial,Helvetica,sans-serif;fill:#263238}.title{font-size:25px;font-weight:700}.subtitle{font-size:14px;fill:#54636b}.panel-title{font-size:19px;font-weight:700}.tick{font-size:12px;fill:#54636b}.axis-label{font-size:14px}.legend{font-size:13px}.annotation{font-size:12px;font-weight:700}.grid{stroke:#dce2e6;stroke-width:1}.axis{stroke:#64737b;stroke-width:1.4}</style>
+<rect width="100%" height="100%" fill="white"/>
+<text x="50" y="42" class="title">Lite R-CNN training progress on COCO</text>
+<text x="50" y="67" class="subtitle">Full val2017 AP@[.50:.95] and per-epoch mean training loss</text>
+<text x="42" y="102" class="panel-title">Validation AP@[.50:.95]</text>
+<line x1="98" y1="558.0" x2="554" y2="558.0" class="grid"/>
+<text x="88" y="563.0" text-anchor="end" class="tick">0.00</text>
+<line x1="98" y1="492.7" x2="554" y2="492.7" class="grid"/>
+<text x="88" y="497.7" text-anchor="end" class="tick">0.05</text>
+<line x1="98" y1="427.4" x2="554" y2="427.4" class="grid"/>
+<text x="88" y="432.4" text-anchor="end" class="tick">0.10</text>
+<line x1="98" y1="362.1" x2="554" y2="362.1" class="grid"/>
+<text x="88" y="367.1" text-anchor="end" class="tick">0.15</text>
+<line x1="98" y1="296.8" x2="554" y2="296.8" class="grid"/>
+<text x="88" y="301.8" text-anchor="end" class="tick">0.20</text>
+<line x1="98" y1="231.4" x2="554" y2="231.4" class="grid"/>
+<text x="88" y="236.4" text-anchor="end" class="tick">0.25</text>
+<line x1="98" y1="166.1" x2="554" y2="166.1" class="grid"/>
+<text x="88" y="171.1" text-anchor="end" class="tick">0.30</text>
+<line x1="98.0" y1="558" x2="98.0" y2="563" class="axis"/>
+<text x="98.0" y="581" text-anchor="middle" class="tick">1</text>
+<line x1="150.1" y1="558" x2="150.1" y2="563" class="axis"/>
+<text x="150.1" y="581" text-anchor="middle" class="tick">5</text>
+<line x1="215.3" y1="558" x2="215.3" y2="563" class="axis"/>
+<text x="215.3" y="581" text-anchor="middle" class="tick">10</text>
+<line x1="280.4" y1="558" x2="280.4" y2="563" class="axis"/>
+<text x="280.4" y="581" text-anchor="middle" class="tick">15</text>
+<line x1="345.5" y1="558" x2="345.5" y2="563" class="axis"/>
+<text x="345.5" y="581" text-anchor="middle" class="tick">20</text>
+<line x1="410.7" y1="558" x2="410.7" y2="563" class="axis"/>
+<text x="410.7" y="581" text-anchor="middle" class="tick">25</text>
+<line x1="475.8" y1="558" x2="475.8" y2="563" class="axis"/>
+<text x="475.8" y="581" text-anchor="middle" class="tick">30</text>
+<line x1="554.0" y1="558" x2="554.0" y2="563" class="axis"/>
+<text x="554.0" y="581" text-anchor="middle" class="tick">36</text>
+<line x1="98" y1="140" x2="98" y2="558" class="axis"/>
+<line x1="98" y1="558" x2="554" y2="558" class="axis"/>
+<text x="326.0" y="598" text-anchor="middle" class="axis-label">Epoch</text>
+<polyline points="98.0,403.4 111.0,359.5 124.1,332.3 137.1,309.4 150.1,301.8 163.1,288.7 176.2,282.9 189.2,278.4 202.2,270.7 215.3,266.8 228.3,265.9 241.3,260.1 254.3,261.4 267.4,258.8 280.4,254.8 293.4,250.8 306.5,254.3 319.5,253.7 332.5,249.5 345.5,246.7 358.6,248.8 371.6,248.6 384.6,244.8 397.7,243.8 410.7,225.7 423.7,223.9 436.7,222.8 449.8,225.9 462.8,224.8 475.8,226.1 488.9,225.6 501.9,226.3 514.9,226.5 527.9,226.2 541.0,224.9 554.0,225.3" fill="none" stroke="#2864a5" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="436.7" cy="222.8" r="5" fill="#2864a5"/>
+<text x="445.7" y="245.8" class="annotation" fill="#2864a5">coco_4090 best 0.257 (e27)</text>
+<polyline points="98.0,341.7 111.0,294.2 124.1,259.7 137.1,246.1 150.1,234.8 163.1,228.9 176.2,220.5 189.2,219.2 202.2,214.6 215.3,209.0 228.3,209.1 241.3,206.3 254.3,206.9 267.4,202.2 280.4,199.3 293.4,200.3 306.5,200.2 319.5,199.0 332.5,197.6 345.5,193.3 358.6,197.5 371.6,197.7 384.6,201.2 397.7,198.8 410.7,181.5 423.7,183.4 436.7,182.8 449.8,182.3 462.8,184.7 475.8,185.2 488.9,183.2 501.9,186.4 514.9,185.8 527.9,186.0 541.0,186.3 554.0,186.0" fill="none" stroke="#df7626" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="410.7" cy="181.5" r="5" fill="#df7626"/>
+<text x="419.7" y="169.5" class="annotation" fill="#df7626">coco_4090_v2 best 0.288 (e25)</text>
+<line x1="106" y1="611" x2="134" y2="611" stroke="#2864a5" stroke-width="3"/>
+<text x="142" y="616" class="legend">coco_4090</text>
+<line x1="296" y1="611" x2="324" y2="611" stroke="#df7626" stroke-width="3"/>
+<text x="332" y="616" class="legend">coco_4090_v2</text>
+<text x="625" y="102" class="panel-title">Training loss</text>
+<line x1="681" y1="558.0" x2="1137" y2="558.0" class="grid"/>
+<text x="671" y="563.0" text-anchor="end" class="tick">0.0</text>
+<line x1="681" y1="492.7" x2="1137" y2="492.7" class="grid"/>
+<text x="671" y="497.7" text-anchor="end" class="tick">0.2</text>
+<line x1="681" y1="427.4" x2="1137" y2="427.4" class="grid"/>
+<text x="671" y="432.4" text-anchor="end" class="tick">0.5</text>
+<line x1="681" y1="362.1" x2="1137" y2="362.1" class="grid"/>
+<text x="671" y="367.1" text-anchor="end" class="tick">0.8</text>
+<line x1="681" y1="296.8" x2="1137" y2="296.8" class="grid"/>
+<text x="671" y="301.8" text-anchor="end" class="tick">1.0</text>
+<line x1="681" y1="231.4" x2="1137" y2="231.4" class="grid"/>
+<text x="671" y="236.4" text-anchor="end" class="tick">1.2</text>
+<line x1="681" y1="166.1" x2="1137" y2="166.1" class="grid"/>
+<text x="671" y="171.1" text-anchor="end" class="tick">1.5</text>
+<line x1="681.0" y1="558" x2="681.0" y2="563" class="axis"/>
+<text x="681.0" y="581" text-anchor="middle" class="tick">1</text>
+<line x1="733.1" y1="558" x2="733.1" y2="563" class="axis"/>
+<text x="733.1" y="581" text-anchor="middle" class="tick">5</text>
+<line x1="798.3" y1="558" x2="798.3" y2="563" class="axis"/>
+<text x="798.3" y="581" text-anchor="middle" class="tick">10</text>
+<line x1="863.4" y1="558" x2="863.4" y2="563" class="axis"/>
+<text x="863.4" y="581" text-anchor="middle" class="tick">15</text>
+<line x1="928.5" y1="558" x2="928.5" y2="563" class="axis"/>
+<text x="928.5" y="581" text-anchor="middle" class="tick">20</text>
+<line x1="993.7" y1="558" x2="993.7" y2="563" class="axis"/>
+<text x="993.7" y="581" text-anchor="middle" class="tick">25</text>
+<line x1="1058.8" y1="558" x2="1058.8" y2="563" class="axis"/>
+<text x="1058.8" y="581" text-anchor="middle" class="tick">30</text>
+<line x1="1137.0" y1="558" x2="1137.0" y2="563" class="axis"/>
+<text x="1137.0" y="581" text-anchor="middle" class="tick">36</text>
+<line x1="681" y1="140" x2="681" y2="558" class="axis"/>
+<line x1="681" y1="558" x2="1137" y2="558" class="axis"/>
+<text x="909.0" y="598" text-anchor="middle" class="axis-label">Epoch</text>
+<polyline points="681.0,152.3 694.0,244.2 707.1,267.3 720.1,281.1 733.1,291.0 746.1,298.4 759.2,304.7 772.2,309.9 785.2,314.4 798.3,318.5 811.3,322.2 824.3,325.3 837.3,328.5 850.4,331.3 863.4,333.9 876.4,336.3 889.5,338.5 902.5,340.6 915.5,342.5 928.5,344.6 941.6,346.2 954.6,347.8 967.6,349.7 980.7,351.2 993.7,365.7 1006.7,369.8 1019.7,371.6 1032.8,372.9 1045.8,374.1 1058.8,374.9 1071.9,375.6 1084.9,376.4 1097.9,378.2 1110.9,378.4 1124.0,378.7 1137.0,378.8" fill="none" stroke="#2864a5" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="1137.0" cy="378.8" r="5" fill="#2864a5"/>
+<polyline points="681.0,307.0 694.0,349.2 707.1,362.3 720.1,370.7 733.1,376.6 746.1,381.3 759.2,385.1 772.2,388.4 785.2,391.5 798.3,394.0 811.3,396.3 824.3,398.6 837.3,400.5 850.4,402.3 863.4,403.9 876.4,405.6 889.5,407.2 902.5,408.7 915.5,410.0 928.5,411.0 941.6,412.5 954.6,413.6 967.6,414.7 980.7,415.6 993.7,425.9 1006.7,429.1 1019.7,430.4 1032.8,431.3 1045.8,432.1 1058.8,432.8 1071.9,433.5 1084.9,433.9 1097.9,435.2 1110.9,435.4 1124.0,435.5 1137.0,435.7" fill="none" stroke="#df7626" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
+<circle cx="1137.0" cy="435.7" r="5" fill="#df7626"/>
+<line x1="689" y1="611" x2="717" y2="611" stroke="#2864a5" stroke-width="3"/>
+<text x="725" y="616" class="legend">coco_4090</text>
+<line x1="879" y1="611" x2="907" y2="611" stroke="#df7626" stroke-width="3"/>
+<text x="915" y="616" class="legend">coco_4090_v2</text>
+<text x="50" y="674" class="subtitle">AP lines use full val2017 evaluation; dots mark each run's best AP checkpoint.</text>
+</svg>
