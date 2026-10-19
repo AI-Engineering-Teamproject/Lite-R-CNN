@@ -5,8 +5,10 @@ import json
 import math
 import random
 import shutil
+import subprocess
 from collections import defaultdict
 from copy import deepcopy
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -45,6 +47,143 @@ def atomic_save(checkpoint, path):
     temporary = path.with_suffix(".tmp")
     torch.save(checkpoint, temporary)
     temporary.replace(path)
+
+
+def write_results_report(output_dir, config, history_path, device, train_images, val_images):
+    """Write a portable Markdown summary after every completed training epoch."""
+    rows = [
+        json.loads(line)
+        for line in history_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    if not rows:
+        return
+    evaluated = [row for row in rows if row.get("validation") is not None]
+    best_row = (
+        max(evaluated, key=lambda row: row["validation"]["AP_50_95"])
+        if evaluated
+        else None
+    )
+    last_row = rows[-1]
+    last_metrics = last_row.get("validation")
+    completed = last_row["epoch"] >= config["train"]["epochs"]
+    if device.type == "cuda":
+        device_name = torch.cuda.get_device_name(device)
+        cuda_runtime = torch.version.cuda or "unknown"
+    else:
+        device_name, cuda_runtime = "CPU", "not used"
+    try:
+        git_revision = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=Path(__file__).resolve().parents[1],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        dirty = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=Path(__file__).resolve().parents[1],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        worktree_state = "dirty" if dirty else "clean"
+    except (OSError, subprocess.CalledProcessError):
+        git_revision, worktree_state = "unavailable", "unavailable"
+
+    def percent(metrics, key):
+        return "—" if metrics is None else f"{metrics[key] * 100:.2f}%"
+
+    def number(losses, key):
+        value = losses.get(key)
+        return "—" if value is None else f"{value:.4f}"
+
+    validation_scope = (
+        "전체 val split"
+        if config["train"].get("val_limit", 0) == 0
+        else f"고정 subset {config['train']['val_limit']}장"
+    )
+    lines = [
+        f"# Lite R-CNN 결과 — {output_dir.name}",
+        "",
+        f"- 상태: **{'완료' if completed else '진행 중'}** "
+        f"({last_row['epoch']}/{config['train']['epochs']} epoch)",
+        f"- 갱신 시각: {datetime.now().astimezone().isoformat(timespec='seconds')}",
+        f"- 코드 revision: `{git_revision}` (worktree {worktree_state})",
+        f"- 장치: `{device}` ({device_name}); PyTorch `{torch.__version__}`, CUDA runtime `{cuda_runtime}`",
+        f"- 모델: `{config['model'].get('architecture', 'light_rcnn')}`, 입력 최대 변 {config['image_size']}px",
+        f"- 데이터: train {train_images:,}장, val {val_images:,}장; "
+        f"batch {config['train']['batch_size']}, "
+        f"val batch {config['train'].get('val_batch_size', 1)}, "
+        f"AMP {config['train'].get('amp', False)}",
+        f"- Seed: {config['seed']}; validation 범위: {validation_scope}",
+        "",
+        "## 요약",
+        "",
+    ]
+    if best_row:
+        best_metrics = best_row["validation"]
+        lines.extend(
+            [
+                f"- 최고 AP@[.50:.95]: **{percent(best_metrics, 'AP_50_95')}** (epoch {best_row['epoch']})",
+                f"- 최고 epoch 지표: AP50 {percent(best_metrics, 'AP_50')}, "
+                f"AP75 {percent(best_metrics, 'AP_75')}, "
+                f"AP-small/medium/large {percent(best_metrics, 'AP_small')} / "
+                f"{percent(best_metrics, 'AP_medium')} / {percent(best_metrics, 'AP_large')}",
+            ]
+        )
+    if last_metrics:
+        lines.append(
+            f"- 마지막 validation (epoch {last_row['epoch']}): "
+            f"AP@[.50:.95] {percent(last_metrics, 'AP_50_95')}, "
+            f"AP50 {percent(last_metrics, 'AP_50')}, AP75 {percent(last_metrics, 'AP_75')}"
+        )
+    lines.extend(
+        [
+            "",
+            "## Epoch 기록",
+            "",
+            "| Epoch | LR | Train loss | Classifier | Box | RPN objectness | RPN box | AP@[.50:.95] | AP50 | AP75 | AP-small | AP-medium | AP-large |",
+            "|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        ]
+    )
+    for row in rows:
+        losses = row["losses"]
+        metrics = row.get("validation")
+        values = [
+            row["epoch"],
+            f"{row['learning_rate']:.2e}",
+            number(losses, "loss_total"),
+            number(losses, "loss_classifier"),
+            number(losses, "loss_box_reg"),
+            number(losses, "loss_objectness"),
+            number(losses, "loss_rpn_box_reg"),
+            percent(metrics, "AP_50_95"),
+            percent(metrics, "AP_50"),
+            percent(metrics, "AP_75"),
+            percent(metrics, "AP_small"),
+            percent(metrics, "AP_medium"),
+            percent(metrics, "AP_large"),
+        ]
+        lines.append("| " + " | ".join(map(str, values)) + " |")
+    lines.extend(
+        [
+            "",
+            "## 다른 컴퓨터에서 이어가기",
+            "",
+            "이 run 폴더의 `config.yaml`, `history.jsonl`, `last.pth`, `best.pth`, `RESULTS.md`를 함께 보관하십시오. "
+            "전체 COCO 이미지와 annotation은 별도 준비가 필요합니다. 총 epoch 수를 늘려 재개할 때는 저장된 설정을 그대로 사용하고 "
+            "`python scripts/train.py --resume outputs/<run>/last.pth --epochs <총목표epoch>`를 실행합니다.",
+            "",
+            "`best.pth`는 최고 validation AP 모델이며 `last.pth`는 마지막 완료 epoch의 optimizer/scheduler 상태를 포함한 재개 파일입니다. "
+            "상세 재현 설정은 [config.yaml](config.yaml), 원시 epoch 기록은 [history.jsonl](history.jsonl)입니다.",
+            "",
+        ]
+    )
+    report_path = output_dir / "RESULTS.md"
+    temporary = report_path.with_suffix(".tmp")
+    temporary.write_text("\n".join(lines), encoding="utf-8")
+    temporary.replace(report_path)
 
 
 def deterministic_subset(dataset, limit, seed):
@@ -123,6 +262,7 @@ def main():
     train.setdefault("lr_gamma", 0.1)
     train.setdefault("max_grad_norm", 10.0)
     train.setdefault("horizontal_flip_prob", 0.0)
+    train.setdefault("box_batch_size_per_image", 512)
     train.setdefault("subset_selection", "seeded_random")
     if train["train_limit"]:
         subset_steps = math.ceil(train["train_limit"] / train["batch_size"])
@@ -370,6 +510,7 @@ def main():
         }
         with history.open("a", encoding="utf-8") as file:
             file.write(json.dumps(record, allow_nan=False) + "\n")
+        write_results_report(output_dir, config, history, device, len(dataset), len(validation))
         print(json.dumps(record, allow_nan=False))
     print(
         f"Finished. Best validation AP={best_ap:.6f} at epoch {best_epoch}; {output_dir / 'best.pth'}"

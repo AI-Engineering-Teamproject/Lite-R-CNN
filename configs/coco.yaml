@@ -12,12 +12,15 @@ model:
   backbone: mobilenet_v3_large
   pretrained: true
   bifpn_channels: 96
-  roi_channels: 10
+  roi_channels: 64 # expanded from 10 to eliminate extreme feature bottleneck
   roi_size: 7
-  roi_head_dim: 128 # preserve coarse spatial cues before class/box prediction
-  roi_head_pool_size: 3
+  roi_head_dim: 256 # expanded from 128 to provide sufficient class/box regression capacity
+  roi_head_pool_size: 7 # preserve full 7x7 spatial layout without premature pooling
+  rpn_anchor_sizes: [[16, 32, 64], [64, 128, 256], [128, 256, 512]] # cover 16px to 512px
   rpn_pre_nms_topk_test: 1000
   rpn_post_nms_topk_test: 300
+  box_score_thresh: 0.05
+  box_nms_thresh: 0.5
 train:
   epochs: 36
   batch_size: 8
@@ -32,6 +35,7 @@ train:
   lr_milestones: [24, 32]
   lr_gamma: 0.1
   max_grad_norm: 10.0
+  box_batch_size_per_image: 512 # torchvision standard to ensure adequate hard-negative sampling
   train_limit: 0 # smoke tests only; 0 uses all images
   val_limit: 0 # best.pth uses AP on this fixed subset; 0 uses full val2017
   horizontal_flip_prob: 0.5

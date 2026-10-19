@@ -16,23 +16,23 @@ flowchart LR
     D --> E[BiFPN 2회<br/>양방향 융합 + separable conv]
     E --> F[Anchor 기반 RPN<br/>표준 Faster R-CNN]
     F --> G[RoI 후보<br/>테스트 시 최대 300개]
-    E --> H[레벨별 채널 압축<br/>96 → 10]
+    E --> H[레벨별 채널 투영<br/>96 → 64]
     G --> I[Multi-scale RoIAlign<br/>7×7]
     H --> I
-    I --> J[3×3 spatial pooling + FC 128<br/>현재 학습 기본]
+    I --> J[7×7 RoIAlign + FC 256<br/>개선된 기본 설정]
     J --> K[분류 + 박스 회귀<br/>COCO 91 클래스]
-    K --> L[NMS 후 최대 100개 검출]
+    K --> L[NMS + 부위포함 억제 후 최대 100개 검출]
 ```
 
 ### 모델 구성
 
 1. **백본:** torchvision MobileNetV3-Large의 stride 8, 16, 32 특징을 사용합니다. 기본 설정은 ImageNet 사전학습 가중치에서 시작합니다.
 2. **특징 융합:** C3/C4/C5를 각각 96채널로 투영한 뒤, 학습 가능한 가중치 융합 BiFPN을 두 번 적용합니다. 융합 합성곱은 depthwise separable convolution입니다.
-3. **후보 영역:** Anchor-Free가 아닌 Faster R-CNN 표준 Anchor 기반 RPN입니다. 레벨당 2개 크기와 3개 종횡비를 사용합니다. 추론 시 RPN 후보는 NMS 전 최대 1,000개, NMS 후 최대 300개입니다.
-4. **RoI 헤드:** 각 피라미드 레벨을 RoIAlign 전에 96채널에서 10채널로 줄입니다. Multi-scale RoIAlign은 7×7 특징을 만들고, 현재 COCO 학습 기본은 위치 단서를 보존하는 3×3 pooling + 단일 FC 128차원 head입니다. GAP 10차원 head는 더 가벼운 ablation 기준선입니다. 초기 16장 실험에서 공간형 head의 train loss가 낮았지만 두 head의 AP가 모두 0이어서 정확도 개선은 아직 검증되지 않았습니다.
-5. **학습 손실:** torchvision Faster R-CNN의 RPN 객체성/박스 손실과 RoI 분류/박스 손실을 사용합니다. 출력 클래스 수는 배경을 포함해 91이며, COCO의 원래 category ID를 유지합니다.
+3. **후보 영역:** Faster R-CNN 표준 Anchor 기반 RPN입니다. 레벨당 3개 크기(16, 32, 64 / 64, 128, 256 / 128, 256, 512)와 3개 종횡비(총 9개)를 사용하여 극소형(16px)부터 대형(512px) 객체까지 커버합니다. 추론 시 RPN 후보는 NMS 전 최대 1,000개, NMS 후 최대 300개입니다.
+4. **RoI 헤드:** 기존 10채널 극단적 정보 병목을 해소하기 위해 64채널 투영과 7×7 RoIAlign을 유지하고 단일 FC 256(또는 512)차원 head로 분류 및 박스 회귀를 수행합니다. 학습 시 이미지당 RoI 샘플링 수를 512개(기존 128개)로 상향하여 부분 중복(sub-box) negative 학습을 강화했습니다.
+5. **학습 손실 및 후처리:** torchvision Faster R-CNN의 RPN 객체성/박스 손실과 RoI 분류/박스 손실을 사용합니다. 추론 시 NMS 및 부위 중복 억제(containment suppression)를 지원합니다.
 
-따라서 Lite R-CNN은 **Faster R-CNN의 경량 2단계 변형**입니다. 현재 구현은 RPN과 NMS를 제거하지 않았고, YOLO처럼 단일 단계 검출기로 바꾼 것도 아닙니다. 각 경량화 요소가 정확도와 속도에 미치는 영향은 COCO와 타깃 하드웨어에서 검증해야 합니다.
+따라서 Lite R-CNN은 **Faster R-CNN의 경량 2단계 변형**입니다. 파라미터 수 약 4.3M 수준으로 기존 Faster R-CNN(41.5M) 대비 10배 작으면서도 충분한 표현력을 유지합니다.
 
 ## 모델 설계·구현·학습 담당 작업 순서
 

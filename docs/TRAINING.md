@@ -86,6 +86,9 @@ validation 결과에는 `detections`, `images_with_detections`, `max_detection_s
 | `best.pth` | 검증 AP@[.50:.95]가 가장 높았던 모델; 동점이면 먼저 나온 모델 유지 |
 | `history.jsonl` | epoch별 개별 손실·총손실·학습률·검증 지표·best epoch |
 | `config.yaml` | 실행에 사용한 설정 |
+| `RESULTS.md` | 매 epoch 갱신되는 장치·revision·요약 AP·전체 epoch 표 및 다른 환경에서 이어가는 방법 |
+
+다른 컴퓨터로 이동할 때는 run 폴더의 `RESULTS.md`, `config.yaml`, `history.jsonl`, `last.pth`, `best.pth`를 함께 복사하십시오. COCO 데이터는 별도로 준비해야 합니다. `RESULTS.md`는 매 epoch 자동 생성되며, 체크포인트 없이도 학습 추세와 최고 성능을 확인할 수 있습니다.
 
 체크포인트에는 학생 모델, optimizer, scheduler, AMP scaler, 완료 epoch, update 수, 최적 AP, 설정 및 Python/NumPy/PyTorch/CUDA 난수 상태가 들어갑니다. 증류 학습은 학습용 adapter 상태도 보관합니다. 저장은 임시 파일을 쓴 뒤 교체합니다. epoch 도중 중단되면 마지막 완료 epoch부터 다시 시작합니다.
 

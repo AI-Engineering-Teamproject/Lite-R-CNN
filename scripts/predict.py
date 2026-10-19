@@ -25,6 +25,57 @@ def coco_category_names(config: dict) -> dict[int, str]:
     return {int(item["id"]): item["name"] for item in annotations.get("categories", [])}
 
 
+def suppress_overlapping_detections(
+    boxes: torch.Tensor,
+    scores: torch.Tensor,
+    labels: torch.Tensor,
+    nms_thresh: float = 0.45,
+    containment_thresh: float = 0.75,
+) -> torch.Tensor:
+    """Filter duplicate overlapping boxes and sub-part detections per class."""
+    import torchvision.ops
+
+    if not boxes.numel():
+        return torch.empty(0, dtype=torch.long, device=boxes.device)
+    keep_indices = []
+    unique_labels = torch.unique(labels)
+    for lbl in unique_labels:
+        mask = labels == lbl
+        cls_indices = torch.nonzero(mask, as_tuple=False).squeeze(1)
+        cls_boxes = boxes[cls_indices]
+        cls_scores = scores[cls_indices]
+        cls_nms_keep = torchvision.ops.nms(cls_boxes, cls_scores, nms_thresh)
+        survived_indices = cls_indices[cls_nms_keep]
+        survived_boxes = boxes[survived_indices]
+
+        if containment_thresh < 1.0 and len(survived_boxes) > 1:
+            filtered = []
+            for i in range(len(survived_boxes)):
+                box_i = survived_boxes[i]
+                area_i = (box_i[2] - box_i[0]).clamp(min=0) * (box_i[3] - box_i[1]).clamp(min=0)
+                if area_i <= 0:
+                    continue
+                contained = False
+                for j in filtered:
+                    box_j = survived_boxes[j]
+                    x1 = torch.max(box_i[0], box_j[0])
+                    y1 = torch.max(box_i[1], box_j[1])
+                    x2 = torch.min(box_i[2], box_j[2])
+                    y2 = torch.min(box_i[3], box_j[3])
+                    inter = (x2 - x1).clamp(min=0) * (y2 - y1).clamp(min=0)
+                    coverage = inter / (area_i + 1e-6)
+                    if coverage >= containment_thresh:
+                        contained = True
+                        break
+                if not contained:
+                    filtered.append(i)
+            survived_indices = survived_indices[filtered]
+        keep_indices.append(survived_indices)
+    if not keep_indices:
+        return torch.empty(0, dtype=torch.long, device=boxes.device)
+    return torch.cat(keep_indices)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--weights", default="outputs/coco_4090/best.pth")
@@ -32,6 +83,15 @@ def main() -> None:
     parser.add_argument("--output-dir", default="outputs/coco_4090/predictions")
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--score-threshold", type=float, default=0.25)
+    parser.add_argument(
+        "--nms-threshold", type=float, default=0.45, help="NMS IoU threshold (default: 0.45)"
+    )
+    parser.add_argument(
+        "--containment-threshold",
+        type=float,
+        default=0.75,
+        help="Suppress smaller sub-boxes heavily contained inside a larger box of the same class (default: 0.75; 1.0 to disable)",
+    )
     parser.add_argument("--max-images", type=int, default=100)
     args = parser.parse_args()
 
@@ -40,6 +100,8 @@ def main() -> None:
     config = checkpoint["config"]
     model = light_rcnn_from_config(config).to(device).eval()
     model.load_state_dict(checkpoint["model"])
+    model.roi_heads.score_thresh = min(0.05, args.score_threshold)
+    model.roi_heads.nms_thresh = args.nms_threshold
     names = coco_category_names(config)
 
     source = Path(args.source)
@@ -59,13 +121,33 @@ def main() -> None:
         with torch.inference_mode():
             prediction = model([tensor])[0]
 
+        pred_boxes = prediction["boxes"].detach()
+        pred_scores = prediction["scores"].detach()
+        pred_labels = prediction["labels"].detach()
+
+        keep_idx = suppress_overlapping_detections(
+            pred_boxes,
+            pred_scores,
+            pred_labels,
+            nms_thresh=args.nms_threshold,
+            containment_thresh=args.containment_threshold,
+        )
+        if keep_idx.numel():
+            pred_boxes = pred_boxes[keep_idx]
+            pred_scores = pred_scores[keep_idx]
+            pred_labels = pred_labels[keep_idx]
+        else:
+            pred_boxes = pred_boxes[:0]
+            pred_scores = pred_scores[:0]
+            pred_labels = pred_labels[:0]
+
         canvas = image.copy()
         draw = ImageDraw.Draw(canvas)
         detections = []
         for box, label, score in zip(
-            prediction["boxes"].detach().cpu().tolist(),
-            prediction["labels"].detach().cpu().tolist(),
-            prediction["scores"].detach().cpu().tolist(),
+            pred_boxes.cpu().tolist(),
+            pred_labels.cpu().tolist(),
+            pred_scores.cpu().tolist(),
         ):
             if score < args.score_threshold:
                 continue

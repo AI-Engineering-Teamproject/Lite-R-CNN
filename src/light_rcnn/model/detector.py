@@ -56,7 +56,7 @@ class CompressedMultiScaleRoIAlign(MultiScaleRoIAlign):
 class LightRoIHead(nn.Module):
     """Pool coarse spatial RoI cues and optionally project them with one small FC layer."""
 
-    def __init__(self, channels: int = 10, output_channels: int = 128, pool_size: int = 3):
+    def __init__(self, channels: int = 64, output_channels: int = 256, pool_size: int = 7):
         super().__init__()
         if pool_size < 1 or output_channels < 0:
             raise ValueError("RoI head dimensions must be positive (output_channels may be 0)")
@@ -81,19 +81,26 @@ class LightRCNN(FasterRCNN):
         num_classes: int = 91,
         pretrained_backbone: bool = True,
         bifpn_channels: int = 96,
-        roi_channels: int = 10,
+        roi_channels: int = 64,
         roi_size: int = 7,
-        roi_head_dim: int = 128,
-        roi_head_pool_size: int = 3,
+        roi_head_dim: int = 256,
+        roi_head_pool_size: int = 7,
         rpn_pre_nms_topk_test: int = 1000,
         rpn_post_nms_topk_test: int = 300,
         min_size: int = 640,
         max_size: int = 640,
+        rpn_anchor_sizes: tuple[tuple[int, ...], ...] | None = None,
+        box_score_thresh: float = 0.05,
+        box_nms_thresh: float = 0.5,
+        box_detections_per_img: int = 100,
+        box_batch_size_per_image: int = 512,
     ):
         backbone = MobileBiFPNBackbone(channels=bifpn_channels, pretrained=pretrained_backbone)
+        if rpn_anchor_sizes is None:
+            rpn_anchor_sizes = ((16, 32, 64), (64, 128, 256), (128, 256, 512))
         anchors = AnchorGenerator(
-            sizes=((32, 64), (64, 128), (128, 256)),
-            aspect_ratios=((0.5, 1.0, 2.0),) * 3,
+            sizes=rpn_anchor_sizes,
+            aspect_ratios=((0.5, 1.0, 2.0),) * len(rpn_anchor_sizes),
         )
         rpn_head = RPNHead(bifpn_channels, anchors.num_anchors_per_location()[0])
         roi_pool = CompressedMultiScaleRoIAlign(bifpn_channels, roi_channels, roi_size)
@@ -113,8 +120,10 @@ class LightRCNN(FasterRCNN):
             rpn_post_nms_top_n_test=rpn_post_nms_topk_test,
             rpn_pre_nms_top_n_train=2000,
             rpn_post_nms_top_n_train=1000,
-            box_detections_per_img=100,
-            box_batch_size_per_image=128,
+            box_score_thresh=box_score_thresh,
+            box_nms_thresh=box_nms_thresh,
+            box_detections_per_img=box_detections_per_img,
+            box_batch_size_per_image=box_batch_size_per_image,
         )
 
 
@@ -146,17 +155,29 @@ def build_detector(kind: str = "light_rcnn", **kwargs) -> nn.Module:
 def light_rcnn_from_config(config: dict, *, pretrained: bool = False) -> LightRCNN:
     """Use the same architecture when training, validating and loading checkpoints."""
     model = config["model"]
+    train_cfg = config.get("train", {})
+    raw_anchor_sizes = model.get("rpn_anchor_sizes")
+    if raw_anchor_sizes is not None:
+        rpn_anchor_sizes = tuple(tuple(int(s) for s in level) for level in raw_anchor_sizes)
+    else:
+        # Backward compatibility for checkpoints trained without explicit rpn_anchor_sizes
+        rpn_anchor_sizes = ((32, 64), (64, 128), (128, 256))
     return LightRCNN(
         num_classes=config["num_classes"],
         pretrained_backbone=pretrained,
         bifpn_channels=model["bifpn_channels"],
-        roi_channels=model["roi_channels"],
-        roi_size=model["roi_size"],
+        roi_channels=model.get("roi_channels", 64),
+        roi_size=model.get("roi_size", 7),
         # Configs/checkpoints created before the spatial head retain their original GAP shape.
         roi_head_dim=model.get("roi_head_dim", 0),
         roi_head_pool_size=model.get("roi_head_pool_size", 1),
-        rpn_pre_nms_topk_test=model["rpn_pre_nms_topk_test"],
-        rpn_post_nms_topk_test=model["rpn_post_nms_topk_test"],
+        rpn_pre_nms_topk_test=model.get("rpn_pre_nms_topk_test", 1000),
+        rpn_post_nms_topk_test=model.get("rpn_post_nms_topk_test", 300),
         min_size=config["image_size"],
         max_size=config["image_size"],
+        rpn_anchor_sizes=rpn_anchor_sizes,
+        box_score_thresh=model.get("box_score_thresh", 0.05),
+        box_nms_thresh=model.get("box_nms_thresh", 0.5),
+        box_detections_per_img=model.get("box_detections_per_img", 100),
+        box_batch_size_per_image=train_cfg.get("box_batch_size_per_image", 512),
     )

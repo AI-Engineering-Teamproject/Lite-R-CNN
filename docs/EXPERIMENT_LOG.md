@@ -1,5 +1,16 @@
 # Lite R-CNN 실험 기록
 
+RTX 4090의 첫 전체 COCO 학습 결과(AP@[.50:.95] 최고 25.66%, epoch 27)와 후속 anchor 실험 계획은 [첫 학습 결과 보고서](experiments/2026-10-19-rtx4090-first-run.md)에 정리했습니다.
+
+## 2026-10-19 — 첫 COCO 전체 학습 진단 및 모델/후처리 개선 (v2 아키텍처)
+
+첫 36 epoch GPU 전체 학습 결과(최고 AP 25.66%, AP50 45.33%, AP75 25.77%, AP_small 9.8%) 및 단일 이미지(`000000000776.jpg`) 추론에서 관찰된 다중 부위 중복 검출(teddy bear 10개 검출) 문제를 분석하고 다음 개선을 단행했습니다.
+
+1. **RoI 채널 병목 해소:** 10채널 극단적 압축을 64채널로 확대하고, 3×3 pooling 대신 7×7 RoIAlign 공간 해상도를 유지하며, FC 차원을 128에서 256으로 확장했습니다. 모델 파라미터는 약 4.3M로 경량성을 유지합니다.
+2. **RPN 앵커 스케일 확장:** 16px 미만 소형 객체 및 256px 초과 대형 객체 검출을 위해 앵커 크기를 `((16, 32, 64), (64, 128, 256), (128, 256, 512))`로 확장했습니다.
+3. **Hard Negative 학습 강화:** RoI 배치 크기를 128에서 torchvision 표준인 512로 상향하여, 부위 오버랩(IoU 0.2~0.4)을 negative로 학습하도록 보완했습니다.
+4. **추론 후처리 개선:** `scripts/predict.py`에 NMS 임계값(`--nms-threshold 0.45`)과 부위 포함 억제(`--containment-threshold 0.75`)를 도입하여 동일 클래스 내 부위 중복 박스를 제거했습니다.
+
 ## 2026-10-19 — COCO 객체 크기 분포와 validation 처리량
 
 로컬 COCO 2017 train annotation 849,947개의 non-crowd 유효 box를 입력 최대 변 640 기준으로 정규화해 `sqrt(width × height)`를 요약했습니다. 백분위수는 10%=14.4px, 25%=26.8px, 50%=58.6px, 75%=133.3px, 90%=257.2px, 95%=347.4px, 99%=505.1px였습니다. 현재 RPN anchor base sizes 32–256px는 중앙 분포에는 맞지만 작은 25% 구간과 큰 10% 구간에는 확장 여지가 있습니다. 후속 후보로 P3에 16px, P5에 512px anchor를 추가하는 ablation을 제안합니다. 이 통계는 anchor/proposal recall이나 AP가 아니므로 기본 anchor를 아직 바꾸지 않았고, GPU 학습 후 full-val AP와 proposal recall로 판단해야 합니다.
