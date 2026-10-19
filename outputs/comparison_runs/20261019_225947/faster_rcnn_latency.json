@@ -1,0 +1,15 @@
+{
+  "model": "faster_rcnn",
+  "model_name": "Vanilla Faster R-CNN",
+  "weights": "torchvision_coco_v1",
+  "device": "cuda",
+  "precision": "fp32",
+  "batch_size": 1,
+  "image_size": 640,
+  "image_count": 1,
+  "warmup": 50,
+  "iterations": 500,
+  "timed_scope": "torchvision transforms + backbone + RPN + RoI heads + NMS; image decode excluded",
+  "p50_ms": 7.654601009562612,
+  "p95_ms": 8.536144974641502
+}

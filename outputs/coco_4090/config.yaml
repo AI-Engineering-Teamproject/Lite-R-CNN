@@ -1,0 +1,75 @@
+seed: 42
+device: cuda
+num_classes: 91
+image_size: 640
+data:
+  train_images: data/coco/images/train2017
+  train_annotations: data/coco/annotations/instances_train2017.json
+  val_images: data/coco/images/val2017
+  val_annotations: data/coco/annotations/instances_val2017.json
+model:
+  architecture: light_rcnn
+  backbone: mobilenet_v3_large
+  pretrained: true
+  bifpn_channels: 96
+  roi_channels: 10
+  roi_size: 7
+  roi_head_dim: 128
+  roi_head_pool_size: 3
+  rpn_pre_nms_topk_test: 1000
+  rpn_post_nms_topk_test: 300
+train:
+  epochs: 36
+  batch_size: 8
+  workers: 8
+  learning_rate: 0.0002
+  weight_decay: 0.0001
+  amp: true
+  output_dir: outputs/coco_4090
+  validate_every: 1
+  val_batch_size: 4
+  warmup_steps: 500
+  lr_milestones:
+  - 24
+  - 32
+  lr_gamma: 0.1
+  max_grad_norm: 10.0
+  train_limit: 0
+  val_limit: 0
+  horizontal_flip_prob: 0.5
+  subset_selection: seeded_random
+distillation:
+  enabled: false
+  teacher:
+    family: faster_rcnn
+    architecture: fasterrcnn_resnet50_fpn
+    checkpoint: torchvision_coco_v1
+  feature_weight: 1.0
+  roi_kl_weight: 1.0
+  temperature: 2.0
+comparison:
+  baseline:
+    architecture: fasterrcnn_resnet50_fpn
+    pretrained_coco: true
+    imgsz: 640
+    precision: fp32
+  light_rcnn:
+    architecture: mobile_bifpn_fasterrcnn
+    imgsz: 640
+    precision: fp32
+  control:
+    family: yolo26
+    variant: yolo26n.pt
+    imgsz: 640
+    precision: fp32
+    weights: yolo26n.pt
+  device: NVIDIA_T4
+  batch_size: 1
+  warmup: 50
+  iterations: 500
+  image_count: 64
+  include_preprocess: true
+  include_nms: true
+export:
+  opset: 17
+  format: fp16

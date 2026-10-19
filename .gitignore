@@ -5,12 +5,14 @@ __pycache__/
 .venv312/
 venv/
 data/
-outputs/
+# outputs/
 Ultralytics/
 checkpoints/
 *.engine
 *.onnx
-*.pt
-*.pth
+# 진규 가중치 넘겨주기 
+# *.pt
+# *.pth
 .pytest_cache/
 .ruff_cache/
+yolo26n.pt

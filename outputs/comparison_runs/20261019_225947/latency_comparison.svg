@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="430" viewBox="0 0 900 430">
+<rect width="100%" height="100%" fill="#ffffff"/>
+<style>text{font-family:Arial,sans-serif;fill:#202124}.title{font-size:24px;font-weight:700}.label{font-size:17px}.val{font-size:14px}.axis{font-size:12px;fill:#666}</style>
+<text x="40" y="42" class="title">Single-image inference latency (lower is faster)</text>
+<line x1="190.0" y1="82" x2="190.0" y2="350" stroke="#e5e7eb"/>
+<text x="190.0" y="375" text-anchor="middle" class="axis">0 ms</text>
+<line x1="318.4" y1="82" x2="318.4" y2="350" stroke="#e5e7eb"/>
+<text x="318.4" y="375" text-anchor="middle" class="axis">2 ms</text>
+<line x1="446.7" y1="82" x2="446.7" y2="350" stroke="#e5e7eb"/>
+<text x="446.7" y="375" text-anchor="middle" class="axis">4 ms</text>
+<line x1="575.1" y1="82" x2="575.1" y2="350" stroke="#e5e7eb"/>
+<text x="575.1" y="375" text-anchor="middle" class="axis">6 ms</text>
+<line x1="703.4" y1="82" x2="703.4" y2="350" stroke="#e5e7eb"/>
+<text x="703.4" y="375" text-anchor="middle" class="axis">8 ms</text>
+<text x="174" y="129" text-anchor="end" class="label">Faster R-CNN</text>
+<rect x="190" y="105" width="491.3" height="22" rx="4" fill="#4e79a7" opacity="1"/>
+<text x="689.3" y="121" class="val">p50: 7.65 ms</text>
+<rect x="190" y="135" width="547.8" height="22" rx="4" fill="#4e79a7" opacity="0.58"/>
+<text x="745.8" y="151" class="val">p95: 8.54 ms</text>
+<text x="174" y="211" text-anchor="end" class="label">Lite R-CNN</text>
+<rect x="190" y="187" width="273.2" height="22" rx="4" fill="#59a14f" opacity="1"/>
+<text x="471.2" y="203" class="val">p50: 4.26 ms</text>
+<rect x="190" y="217" width="333.5" height="22" rx="4" fill="#59a14f" opacity="0.58"/>
+<text x="531.5" y="233" class="val">p95: 5.20 ms</text>
+<text x="174" y="293" text-anchor="end" class="label">YOLO26</text>
+<rect x="190" y="269" width="206.4" height="22" rx="4" fill="#f28e2b" opacity="1"/>
+<text x="404.4" y="285" class="val">p50: 3.22 ms</text>
+<rect x="190" y="299" width="545.1" height="22" rx="4" fill="#f28e2b" opacity="0.58"/>
+<text x="743.1" y="315" class="val">p95: 8.49 ms</text>
+<rect x="190" y="402" width="14" height="14" rx="2" fill="#777"/><text x="212" y="414" class="axis">진한 막대 p50 · 연한 막대 p95</text>
+</svg>

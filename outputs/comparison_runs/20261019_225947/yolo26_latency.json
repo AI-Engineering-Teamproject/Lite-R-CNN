@@ -1,0 +1,16 @@
+{
+  "model_family": "YOLO26",
+  "weights": "yolo26n.pt",
+  "imgsz": 640,
+  "device": "0",
+  "precision": "fp32",
+  "batch_size": 1,
+  "timed_scope": "Ultralytics predict API; image decode excluded, model transforms/postprocess included",
+  "warmup": 50,
+  "iterations": 500,
+  "p50_ms": 3.2154050131794065,
+  "p95_ms": 8.49426700733602,
+  "images": [
+    "/home/user/Desktop/Lite-R-CNN/data/coco/images/val2017/000000129756.jpg"
+  ]
+}
