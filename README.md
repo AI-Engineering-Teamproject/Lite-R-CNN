@@ -1,8 +1,8 @@
 # Lite R-CNN
 
-Lite R-CNN은 Faster R-CNN의 2단계 검출 흐름을 유지하면서, 백본과 특징 융합부, RoI 헤드를 줄여 추론 비용을 낮추려는 이 프로젝트의 모델입니다. 비교 대상은 COCO 사전학습 Faster R-CNN ResNet-50-FPN과 YOLOv26 nano입니다.
+Lite R-CNN은 **MobileNetV3-Large와 BiFPN을 적용해 경량화한 Faster R-CNN 기반 모델**입니다. 표준 anchor 기반 RPN과 2단계 RoI 검출 흐름을 유지하면서 백본, 다중 스케일 특징 융합부, RoI 헤드를 구성했습니다. 이 프로젝트 고유의 조합이며 논문 Light-Head R-CNN의 재현 구현은 아닙니다. 비교 대상은 COCO 사전학습 Faster R-CNN ResNet-50-FPN과 Ultralytics YOLO26 nano입니다.
 
-모델의 현재 목표는 기존 Faster R-CNN보다 가벼운 구조를 만들고, 정확도 저하와 추론 지연을 실제 측정해 개선 여부를 확인하는 것입니다. COCO mAP 60 이상이나 T4 batch-1 15ms 이하는 목표일 뿐, 아직 달성된 결과가 아닙니다. 전체 진행 상태는 [개발 로드맵](docs/ROADMAP.md)을 참고하십시오.
+v2는 COCO 2017 전체 학습 세트로 36 epoch 학습했고, 전체 val2017 5,000장 평가에서 최고 AP@[.50:.95] **28.82% (epoch 25)**를 기록했습니다. 최고 체크포인트는 `outputs/coco_4090_v2/best.pth`입니다. RTX 4090 단일 이미지 측정에서 Lite R-CNN은 p50 4.26ms였지만, 이 지연 시간 결과는 같은 환경에서 수행한 COCO 정확도 비교를 대신하지 않습니다. 상세 결과는 [실험 기록](docs/EXPERIMENT_LOG.md)을 참고하십시오.
 
 > 제품·문서 표기는 **Lite R-CNN**을 사용합니다. 기존 Python API와 체크포인트 이름은 호환성을 위해 `LightRCNN`, `light_rcnn`을 사용합니다.
 
@@ -19,9 +19,9 @@ flowchart LR
     E --> H[레벨별 채널 투영<br/>96 → 64]
     G --> I[Multi-scale RoIAlign<br/>7×7]
     H --> I
-    I --> J[7×7 RoIAlign + FC 256<br/>개선된 기본 설정]
+    I --> J[Adaptive pooling 7×7<br/>FC 3136 → 256]
     J --> K[분류 + 박스 회귀<br/>COCO 91 클래스]
-    K --> L[NMS + 부위포함 억제 후 최대 100개 검출]
+    K --> L[클래스별 NMS<br/>이미지당 최대 100개 검출]
 ```
 
 ### 모델 구성
@@ -29,10 +29,10 @@ flowchart LR
 1. **백본:** torchvision MobileNetV3-Large의 stride 8, 16, 32 특징을 사용합니다. 기본 설정은 ImageNet 사전학습 가중치에서 시작합니다.
 2. **특징 융합:** C3/C4/C5를 각각 96채널로 투영한 뒤, 학습 가능한 가중치 융합 BiFPN을 두 번 적용합니다. 융합 합성곱은 depthwise separable convolution입니다.
 3. **후보 영역:** Faster R-CNN 표준 Anchor 기반 RPN입니다. 레벨당 3개 크기(16, 32, 64 / 64, 128, 256 / 128, 256, 512)와 3개 종횡비(총 9개)를 사용하여 극소형(16px)부터 대형(512px) 객체까지 커버합니다. 추론 시 RPN 후보는 NMS 전 최대 1,000개, NMS 후 최대 300개입니다.
-4. **RoI 헤드:** 기존 10채널 극단적 정보 병목을 해소하기 위해 64채널 투영과 7×7 RoIAlign을 유지하고 단일 FC 256(또는 512)차원 head로 분류 및 박스 회귀를 수행합니다. 학습 시 이미지당 RoI 샘플링 수를 512개(기존 128개)로 상향하여 부분 중복(sub-box) negative 학습을 강화했습니다.
-5. **학습 손실 및 후처리:** torchvision Faster R-CNN의 RPN 객체성/박스 손실과 RoI 분류/박스 손실을 사용합니다. 추론 시 NMS 및 부위 중복 억제(containment suppression)를 지원합니다.
+4. **RoI 헤드:** 피라미드 각 단계의 96채널 특징을 1×1 Conv/BatchNorm/ReLU로 64채널에 투영하고, multi-scale RoIAlign으로 7×7 특징을 추출합니다. Adaptive pooling 후 3136→256 단일 FC와 분류·박스 예측층을 사용합니다. 학습 시 이미지당 RoI 샘플링 수는 512개입니다.
+5. **학습 손실 및 후처리:** torchvision Faster R-CNN의 RPN 객체성/박스 손실과 RoI 분류/박스 손실을 사용합니다. 기본 추론은 클래스별 NMS를 사용합니다. `scripts/predict.py`의 시각화 추론에는 선택형 부위 포함 억제가 추가됩니다.
 
-따라서 Lite R-CNN은 **Faster R-CNN의 경량 2단계 변형**입니다. 파라미터 수 약 4.3M 수준으로 기존 Faster R-CNN(41.5M) 대비 10배 작으면서도 충분한 표현력을 유지합니다.
+따라서 Lite R-CNN은 **MobileNetV3-Large와 BiFPN을 적용한 경량 Faster R-CNN 변형**입니다. v2의 파라미터 수는 4,187,700개(약 4.19M)입니다. 파라미터가 적다는 사실만으로 정확도나 전체 추론 속도 우위를 의미하지 않으며, 비교 결과는 동일 조건 평가로 확인해야 합니다.
 
 ## 모델 설계·구현·학습 담당 작업 순서
 
@@ -105,10 +105,10 @@ COCO 준비, Lite R-CNN 학습, epoch별 COCO 검증과 연구 기록 갱신을 
 탐색기에서 실행하려면 `start_lite_rcnn_research.bat`을 사용할 수 있습니다. 기본은 CPU preset이며, 연구 루프는 학습률과 seed를 바꿔 연속 실행합니다. 전체 GPU 학습을 직접 시작하려면 아래 RTX 4090 명령을 사용하십시오. 중간에 멈추면 마지막 완료 epoch 체크포인트에서 재개할 수 있습니다.
 
 ```powershell
-python scripts/train.py --config configs/coco.yaml --device cuda --epochs 36 --output-dir outputs/coco_4090
+python scripts/train.py --config configs/coco.yaml --device cuda --epochs 36 --output-dir outputs/coco_4090_v2
 ```
 
-RTX 4090 환경에서는 CUDA 지원 PyTorch/torchvision을 설치한 뒤 `python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0))"`로 장치를 확인하십시오. 데이터가 `data/coco/`에 있고 네 경로가 모두 존재하는지 확인한 다음 위 학습 명령을 실행합니다. 기본 설정은 batch size 8과 AMP를 사용합니다. 메모리 부족이면 `configs/coco.yaml`의 batch size를 낮추고 새 output directory를 지정하십시오. 이어 학습은 `python scripts/train.py --resume outputs/coco_4090/last.pth --epochs 36`입니다. `--epochs`는 총 목표 epoch 수입니다.
+RTX 4090 환경에서는 CUDA 지원 PyTorch/torchvision을 설치한 뒤 `python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0))"`로 장치를 확인하십시오. 데이터가 `data/coco/`에 있고 네 경로가 모두 존재하는지 확인한 다음 위 학습 명령을 실행합니다. 기본 설정은 batch size 8과 AMP를 사용합니다. 메모리 부족이면 `configs/coco.yaml`의 batch size를 낮추고 새 output directory를 지정하십시오. 이어 학습은 `python scripts/train.py --resume outputs/coco_4090_v2/last.pth --epochs 36`입니다. `--epochs`는 총 목표 epoch 수입니다.
 
 먼저 파이프라인만 짧게 확인하려면 COCO 데이터를 준비한 뒤 일부 이미지로 실행합니다. 이 체크포인트의 AP는 부분 데이터 기준이므로 최종 성능으로 사용하면 안 됩니다.
 
@@ -116,19 +116,19 @@ RTX 4090 환경에서는 CUDA 지원 PyTorch/torchvision을 설치한 뒤 `pytho
 python scripts/train.py --config configs/coco_cpu.yaml --device cpu --epochs 2 --train-limit 16 --val-limit 16 --output-dir outputs/coco_cpu_smoke
 ```
 
-학습이 끝나면 `outputs/coco_cpu/best.pth`가 검증 AP 기준 최적 가중치입니다. 세 모델을 CPU에서 비교하려면 다음처럼 실행합니다.
+전체 COCO 정확도와 지연 시간을 세 모델에서 비교하려면 v2 체크포인트로 다음을 실행합니다. 이 평가는 COCO val2017 전체를 사용하므로 시간이 걸릴 수 있습니다.
 
 ```powershell
-python scripts/run_comparison.py --device cpu --light-weights outputs/coco_cpu/best.pth
+python scripts/run_comparison.py --config configs/coco.yaml --device cuda --light-weights outputs/coco_4090_v2/best.pth --yolo-weights yolo26n.pt --no-dashboard
 ```
 
-동일한 이미지 한 장으로 지연 시간만 미리 확인할 수 있습니다. Lite R-CNN 체크포인트가 없으면 ImageNet 사전학습 백본과 초기화된 검출 헤드로 속도만 측정하며, 그 예측 결과나 정확도는 비교하지 않습니다.
+COCO annotation 없이 이미지 한 장으로 지연 시간만 비교하려면 `--single-image`를 사용합니다. 이 모드는 정확도 평가를 건너뜁니다.
 
 ```powershell
-python scripts/run_comparison.py --device cpu --inference-only --source data/samples/test.jpg
+python scripts/run_comparison.py --single-image data/coco/images/val2017/000000129756.jpg --device cuda --light-weights outputs/coco_4090_v2/best.pth --yolo-weights yolo26n.pt --no-dashboard
 ```
 
-`--inference-only`는 COCO annotation이 필요하지 않습니다. 단일 이미지는 동작 점검용입니다. 의미 있는 지연 시간 분포를 위해서는 같은 해상도·조건의 이미지 여러 장을 `--source` 폴더에 넣어 사용하십시오. 전체 비교 실행은 단계 중 하나라도 실패하면 중단되며 결과를 `outputs/comparison_runs/`의 해당 실행 폴더에 저장합니다.
+단일 이미지 결과는 동작 확인용이며 일반적인 지연 시간 분포를 대표하지 않습니다. 전체 비교 실행은 단계 중 하나라도 실패하면 중단되며 결과를 `outputs/comparison_runs/`의 해당 실행 폴더에 저장합니다.
 
 ## 비교 프로토콜
 
@@ -148,7 +148,7 @@ python scripts/run_comparison.py --device cpu --inference-only --source data/sam
 ## 현재 상태와 제한
 
 - 모델 구조, COCO 학습/검증, best/last 저장, 학습 재개와 선택형 지식 증류 코드가 있습니다.
-- 학습된 COCO Lite R-CNN 가중치와 검증된 전체 COCO/T4 성능 수치는 아직 없습니다.
+- v2 COCO 학습 가중치는 `outputs/coco_4090_v2/best.pth`에 있습니다. COCO 세 모델 간 동일 조건 전체 정확도 비교와 T4 성능은 별도 측정이 필요합니다.
 - CPU 합성 데이터 통합 테스트가 구현되어 있지만, 실제 정확도 향상은 COCO 학습 결과로 확인해야 합니다.
 - ONNX 내보내기 진입점은 있으나 TensorRT에서 RoIAlign/NMS를 포함해 동작하는지와 FP16/INT8 정확도는 검증이 필요합니다.
 - 대시보드 코드는 [dashboard/app.py](dashboard/app.py)이며 평가 JSON과 지연 시간 JSON을 읽습니다.
