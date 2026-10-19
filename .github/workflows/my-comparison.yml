@@ -1,0 +1,103 @@
+name: Personal comparison CPU checks
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/my-comparison.yml
+      - configs/my_comparison.yaml
+      - scripts/run_my_comparison.py
+      - src/light_rcnn/**
+      - tests/**
+      - pyproject.toml
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/my-comparison.yml
+      - configs/my_comparison.yaml
+      - scripts/run_my_comparison.py
+      - src/light_rcnn/**
+      - tests/**
+      - pyproject.toml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cpu-checks:
+    name: Four adapters, official COCOeval and checkpoint smoke test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      OMP_NUM_THREADS: '2'
+      MKL_NUM_THREADS: '2'
+      YOLO_CONFIG_DIR: ${{ github.workspace }}/outputs/ci/ultralytics
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install CPU dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install torch==2.8.0 torchvision==0.23.0 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -e '.[train,compare-yolo,dev]' ultralytics==8.4.177 ruff==0.17.0
+      - name: Check the independent comparison code
+        run: |
+          ruff check src/light_rcnn/comparison scripts/run_my_comparison.py tests/test_my_comparison.py
+          ruff format --check src/light_rcnn/comparison scripts/run_my_comparison.py tests/test_my_comparison.py
+      - name: Record execution environment
+        run: |
+          mkdir -p outputs/ci
+          python -m pip freeze > outputs/ci/installed-requirements.txt
+          python -c "import torch; print('torch:', torch.__version__); print('CUDA available:', torch.cuda.is_available()); assert not torch.cuda.is_available(), 'This workflow is explicitly a CPU check'"
+      - name: Run comparison and existing training tests
+        run: |
+          python -m pytest tests/test_my_comparison.py tests/test_training.py -q --junitxml=outputs/ci/junit.xml --basetemp=outputs/ci/pytest
+      - name: Write execution summary
+        if: always()
+        shell: python
+        run: |
+          import os
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          lines = [
+              "# Personal comparison — CPU execution",
+              "",
+              "These are synthetic-data pipeline checks, not trained-model COCO accuracy or GPU benchmarks.",
+              "All four actual CPU adapters, shared COCOeval/crowd handling, checkpoint loading, report generation, and existing training/resume/distillation are tested.",
+              "",
+          ]
+          junit = Path("outputs/ci/junit.xml")
+          if junit.exists():
+              suites = ET.parse(junit).getroot().findall("testsuite")
+              totals = {key: sum(int(suite.get(key, 0)) for suite in suites)
+                        for key in ("tests", "failures", "errors", "skipped")}
+              lines.append(" | ".join(f"{key}: {value}" for key, value in totals.items()))
+          else:
+              lines.append("Tests did not finish; inspect the job logs for the failed setup or test step.")
+          lines += [
+              "",
+              "The artifact includes JUnit, dependency versions and the untrained Lite checkpoint smoke-test report.",
+              "Full COCO comparison needs val2017, the team's v2 best.pth, yolo26n.pt, and a separately configured GPU runner for GPU timings.",
+          ]
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as stream:
+              stream.write("\n".join(lines) + "\n")
+      - name: Upload CPU check evidence (synthetic data only)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: comparison-cpu-checks-synthetic-${{ github.run_id }}
+          path: |
+            outputs/ci/junit.xml
+            outputs/ci/installed-requirements.txt
+            outputs/ci/pytest/test_actual_lite_checkpoint_cli*/result/
+          if-no-files-found: warn
+          retention-days: 7
