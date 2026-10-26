@@ -72,6 +72,14 @@ comparison:
   image_count: 16
   include_preprocess: true
   include_nms: true
+  score_threshold: 0.001 # identical detection score floor for every model's COCO evaluation
+  max_detections: 100
+  latency_score_threshold: 0.25 # shared deployment-style score floor for latency runs
+  targets: # project goals drawn on the dashboard; README targets, not achieved results
+    latency_ms: 15
+    latency_percentile: p50
+    ap_metric: AP_50_95 # confirm with the team whether the 60 target means AP50 instead
+    ap: 0.60
 export:
   opset: 17
   format: fp16
