@@ -1,0 +1,135 @@
+{
+  "schema_version": 2,
+  "kind": "stages",
+  "model": "light_rcnn",
+  "model_name": "Light R-CNN",
+  "created_at": "2026-10-26T10:52:40+00:00",
+  "git_commit": "b0352d45e0806e7674bf1ed4cb7ec78d5416c349-dirty",
+  "weights": "outputs/coco_4090_v2/best.pth",
+  "weights_sha256": "aae85de5ecd901f84ad02d802316617bdb9a2403b9877b3a40d6e31908ed2a74",
+  "image_size": 640,
+  "batch_size": 1,
+  "precision": "fp32",
+  "environment": {
+    "device": "cpu",
+    "device_type": "cpu",
+    "device_name": "Intel(R) Xeon(R) Processor @ 2.10GHz",
+    "cpu_name": "Intel(R) Xeon(R) Processor @ 2.10GHz",
+    "cpu_count": 4,
+    "python": "3.13.16",
+    "platform": "Linux-6.18.44-fc-v153-x86_64-with-glibc2.39",
+    "packages": {
+      "torch": "2.14.1",
+      "torchvision": "0.29.1",
+      "ultralytics": "8.4.178",
+      "pycocotools": "2.0.11",
+      "onnxruntime": null,
+      "tensorrt": null
+    },
+    "torch_num_threads": 4,
+    "cuda_runtime": "13.0",
+    "cudnn": 92400,
+    "cudnn_benchmark": false
+  },
+  "stages": {
+    "scope_id": "rcnn_stage_breakdown",
+    "iterations": 100,
+    "warmup": 10,
+    "image_count": 16,
+    "score_threshold": 0.25,
+    "max_detections": 100,
+    "conv_bn_fused": true,
+    "memory_format": "channels_last",
+    "images": [
+      "/home/user/Lite_R-CNN/data/coco/images/val2017/000000000009.jpg",
+      "/home/user/Lite_R-CNN/data/coco/images/val2017/000000000025.jpg",
+      "/home/user/Lite_R-CNN/data/coco/images/val2017/000000000030.jpg",
+      "/home/user/Lite_R-CNN/data/coco/images/val2017/000000000034.jpg",
+      "/home/user/Lite_R-CNN/data/coco/images/val2017/000000000036.jpg",
+      "/home/user/Lite_R-CNN/data/coco/images/val2017/000000000042.jpg",
+      "/home/user/Lite_R-CNN/data/coco/images/val2017/000000000049.jpg",
+      "/home/user/Lite_R-CNN/data/coco/images/val2017/000000000061.jpg",
+      "/home/user/Lite_R-CNN/data/coco/images/val2017/000000000064.jpg",
+      "/home/user/Lite_R-CNN/data/coco/images/val2017/000000000071.jpg",
+      "/home/user/Lite_R-CNN/data/coco/images/val2017/000000000072.jpg",
+      "/home/user/Lite_R-CNN/data/coco/images/val2017/000000000073.jpg",
+      "/home/user/Lite_R-CNN/data/coco/images/val2017/000000000074.jpg",
+      "/home/user/Lite_R-CNN/data/coco/images/val2017/000000000077.jpg",
+      "/home/user/Lite_R-CNN/data/coco/images/val2017/000000000078.jpg",
+      "/home/user/Lite_R-CNN/data/coco/images/val2017/000000000081.jpg"
+    ],
+    "items": [
+      {
+        "stage": "input",
+        "label": "입력 복사·정규화",
+        "p50_ms": 0.243,
+        "mean_ms": 0.2742,
+        "p95_ms": 0.4166,
+        "share": 0.0042
+      },
+      {
+        "stage": "preprocess",
+        "label": "전처리 (리사이즈·정규화)",
+        "p50_ms": 1.3578,
+        "mean_ms": 1.4621,
+        "p95_ms": 2.0815,
+        "share": 0.0225
+      },
+      {
+        "stage": "backbone",
+        "label": "백본 + FPN/BiFPN",
+        "p50_ms": 28.3007,
+        "mean_ms": 29.5736,
+        "p95_ms": 37.4805,
+        "share": 0.4553
+      },
+      {
+        "stage": "rpn",
+        "label": "RPN (제안 + NMS)",
+        "p50_ms": 12.8001,
+        "mean_ms": 13.1174,
+        "p95_ms": 18.3775,
+        "share": 0.2019
+      },
+      {
+        "stage": "roi_heads",
+        "label": "RoI 헤드 (RoIAlign + 분류/회귀 + NMS)",
+        "p50_ms": 18.7658,
+        "mean_ms": 20.4631,
+        "p95_ms": 28.323,
+        "share": 0.315
+      },
+      {
+        "stage": "postprocess",
+        "label": "후처리 (원본 크기 복원)",
+        "p50_ms": 0.0565,
+        "mean_ms": 0.0665,
+        "p95_ms": 0.102,
+        "share": 0.001
+      }
+    ],
+    "substages": [
+      {
+        "stage": "rpn.filter_proposals",
+        "parent": "rpn",
+        "label": "제안 필터링 + NMS",
+        "p50_ms": 7.062,
+        "mean_ms": 7.4059,
+        "p95_ms": 11.0263
+      },
+      {
+        "stage": "roi_heads.postprocess_detections",
+        "parent": "roi_heads",
+        "label": "클래스별 NMS",
+        "p50_ms": 1.5397,
+        "mean_ms": 1.731,
+        "p95_ms": 2.2165
+      }
+    ],
+    "total_p50_ms": 61.8057,
+    "total_mean_ms": 64.9569,
+    "wall_p50_ms": 61.9292,
+    "wall_mean_ms": 65.0811,
+    "overhead_note": "단계마다 시간을 재느라 약간의 오버헤드가 더해져 단계 합계가 지연 시간 탭의 값보다 조금 클 수 있습니다. 병목은 비중으로 판단하고 절대 시간은 지연 시간 탭을 기준으로 보세요. 상위 단계가 적힌 세부 단계 행은 상위 단계 시간에 이미 포함되어 있으니 더하지 마세요."
+  }
+}
