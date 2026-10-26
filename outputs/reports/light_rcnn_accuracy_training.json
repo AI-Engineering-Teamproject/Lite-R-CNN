@@ -1,0 +1,63 @@
+{
+  "schema_version": 2,
+  "kind": "accuracy",
+  "model": "light_rcnn",
+  "model_name": "Light R-CNN",
+  "created_at": "2026-10-19T12:40:59+00:00",
+  "git_commit": "13029b4",
+  "created_at_source": "RESULTS.md",
+  "imported_at": "2026-10-26T11:05:11+00:00",
+  "run_dir": "outputs/coco_4090_v2",
+  "weights": "outputs/coco_4090_v2/best.pth",
+  "weights_sha256": "aae85de5ecd901f84ad02d802316617bdb9a2403b9877b3a40d6e31908ed2a74",
+  "config": "outputs/coco_4090_v2/config.yaml",
+  "image_size": 640,
+  "batch_size": 4,
+  "precision": "fp32",
+  "environment": {
+    "device": "cuda",
+    "device_type": "cuda",
+    "device_name": "NVIDIA GeForce RTX 4090",
+    "recorded_from": "RESULTS.md",
+    "packages": {
+      "torch": "2.7.1+cu128"
+    },
+    "cuda_runtime": "12.8"
+  },
+  "accuracy": {
+    "evaluator": "pycocotools",
+    "source": "training_validation",
+    "epoch": 25,
+    "epoch_rule": "best_epoch",
+    "epochs_completed": 36,
+    "weights_epoch": 25,
+    "images_evaluated": 5000,
+    "images_total": 5000,
+    "is_partial": false,
+    "subset_selection": "full",
+    "subset_seed": null,
+    "score_threshold": 0.05,
+    "max_detections": 100,
+    "dataset": {
+      "annotations": "data/coco/annotations/instances_val2017.json",
+      "annotations_sha256": null,
+      "images_dir": "data/coco/images/val2017"
+    },
+    "AP_50_95": 0.28823648592275625,
+    "AP_50": 0.4777059686808381,
+    "AP_75": 0.29918741809919447,
+    "AP_small": 0.10989419024995918,
+    "AP_medium": 0.3175838590265674,
+    "AP_large": 0.4452160393227883,
+    "detections": 122297,
+    "diagnostics": {
+      "images_with_detections": 4980,
+      "max_detection_score": 0.9999501705169678,
+      "mean_best_iou_any_class": 0.8910495767164975,
+      "mean_best_iou_same_class": 0.8818008018381893,
+      "images_with_iou50_any_class": 4918,
+      "images_with_iou50_same_class": 4894
+    }
+  },
+  "images_evaluated": 5000
+}

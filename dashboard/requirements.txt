@@ -1,0 +1,6 @@
+# Streamlit Community Cloud installs this file (it sits next to app.py), not the whole project:
+# the dashboard only reads result JSON files and needs no PyTorch.
+streamlit>=1.40
+plotly>=5.24
+pandas>=2.2
+PyYAML>=6.0

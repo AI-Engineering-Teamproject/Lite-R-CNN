@@ -130,6 +130,23 @@ python scripts/run_comparison.py --single-image data/coco/images/val2017/0000001
 
 단일 이미지 결과는 동작 확인용이며 일반적인 지연 시간 분포를 대표하지 않습니다. 전체 비교 실행은 단계 중 하나라도 실패하면 중단되며 결과를 `outputs/comparison_runs/`의 해당 실행 폴더에 저장합니다.
 
+### 성능 측정과 그래프
+
+측정 규칙, 결과 파일 형식, 그래프 읽는 법은 [성능 측정 안내](docs/MEASUREMENT.md)에 정리했습니다. 자주 쓰는 명령은 다음과 같습니다.
+
+```powershell
+# 학습 중 검증한 최고 epoch 정확도를 결과 파일로 가져오기 (outputs/reports/light_rcnn_accuracy_training.json)
+python scripts/import_training_results.py outputs/coco_4090_v2
+# 이미지 폴더 하나로 세 모델의 지연 시간만 측정
+python scripts/run_comparison.py --inference-only --source data/coco/images/val2017 --device cuda --light-weights outputs/coco_4090_v2/best.pth --no-dashboard
+# 대화형 대시보드 (왼쪽 메뉴에서 결과 폴더와 지연 시간 측정 장치 선택)
+streamlit run dashboard/app.py
+# PNG·SVG 그래프와 HTML 보고서 저장
+python scripts/plot_results.py --reports outputs --out outputs/figures --theme both
+```
+
+학습 중 검증 결과는 점수 임계값 0.05로 계산되어 비교용 평가(0.001)와 조건이 다릅니다. 세 모델의 최종 비교 숫자는 `run_comparison.py` 또는 `evaluate_coco.py`로 다시 평가한 값을 사용하십시오.
+
 ## 비교 프로토콜
 
 성능 측정 담당자와 데이터셋 담당자는 세 모델에 동일한 COCO split과 이미지 집합을 사용하고, 입력 크기 640, batch size 1, 장치와 정밀도를 기록합니다. 각 프레임워크의 resize/padding 방식은 다를 수 있으므로 설정도 함께 남깁니다.
