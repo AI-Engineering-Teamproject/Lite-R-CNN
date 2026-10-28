@@ -38,8 +38,9 @@ def roi_kl_loss(
 class DistillationTrainer(torch.nn.Module):
     """Train on one transform and one set of sampled student RoIs.
 
-    ResNet FPN levels 1/2/3 and student levels 0/1/2 have strides 8/16/32.
-    Only the student and channel adapters receive gradients. The teacher uses
+    The v2 three-level student maps to teacher strides 8/16/32; the v3 four-level
+    student maps to teacher strides 4/8/16/32. Only the student and channel
+    adapters receive gradients. The teacher uses
     the student's normalized, resized and padded tensor, never a second resize.
     """
 
@@ -57,13 +58,22 @@ class DistillationTrainer(torch.nn.Module):
         self.feature_weight = feature_weight
         self.roi_kl_weight = roi_kl_weight
         self.temperature = temperature
+        student_keys = tuple(
+            getattr(
+                student.backbone,
+                "distillation_feature_names",
+                getattr(student.backbone, "feature_names", ("0", "1", "2")),
+            )
+        )
+        teacher_keys = ("0", "1", "2", "3") if len(student_keys) == 4 else ("1", "2", "3")
+        self.feature_key_pairs = tuple(zip(student_keys, teacher_keys))
         self.adapters = (
             torch.nn.ModuleDict(
                 {
-                    str(index): torch.nn.Conv2d(
+                    student_key: torch.nn.Conv2d(
                         student.backbone.out_channels, teacher.backbone.out_channels, 1
                     )
-                    for index in range(3)
+                    for student_key, _ in self.feature_key_pairs
                 }
             )
             if feature_weight
@@ -110,10 +120,10 @@ class DistillationTrainer(torch.nn.Module):
         if self.feature_weight:
             feature_losses = [
                 feature_distillation_loss(
-                    self.adapters[str(index)](features[str(index)]).float(),
-                    teacher_features[str(index + 1)].float(),
+                    self.adapters[student_key](features[student_key]).float(),
+                    teacher_features[teacher_key].float(),
                 )
-                for index in range(3)
+                for student_key, teacher_key in self.feature_key_pairs
             ]
             losses["loss_kd_feature"] = self.feature_weight * torch.stack(feature_losses).mean()
         if self.roi_kl_weight:

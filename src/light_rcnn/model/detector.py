@@ -35,16 +35,22 @@ class MobileBiFPNBackbone(nn.Module):
 class CompressedMultiScaleRoIAlign(MultiScaleRoIAlign):
     """Project FPN maps to a narrow channel width before RoIAlign."""
 
-    def __init__(self, in_channels: int, roi_channels: int = 10, output_size: int = 7):
-        super().__init__(["0", "1", "2"], output_size=output_size, sampling_ratio=2)
+    def __init__(
+        self,
+        in_channels: int,
+        roi_channels: int = 10,
+        output_size: int = 7,
+        feature_names: tuple[str, ...] = ("0", "1", "2"),
+    ):
+        super().__init__(list(feature_names), output_size=output_size, sampling_ratio=2)
         self.projections = nn.ModuleDict(
             {
-                str(index): nn.Sequential(
+                key: nn.Sequential(
                     nn.Conv2d(in_channels, roi_channels, kernel_size=1, bias=False),
                     nn.BatchNorm2d(roi_channels),
                     nn.ReLU(inplace=True),
                 )
-                for index in range(3)
+                for key in feature_names
             }
         )
 
@@ -56,10 +62,21 @@ class CompressedMultiScaleRoIAlign(MultiScaleRoIAlign):
 class LightRoIHead(nn.Module):
     """Pool coarse spatial RoI cues and optionally project them with one small FC layer."""
 
-    def __init__(self, channels: int = 64, output_channels: int = 256, pool_size: int = 7):
+    def __init__(
+        self,
+        channels: int = 64,
+        output_channels: int = 256,
+        pool_size: int = 7,
+        input_channels: int | None = None,
+    ):
         super().__init__()
         if pool_size < 1 or output_channels < 0:
             raise ValueError("RoI head dimensions must be positive (output_channels may be 0)")
+        self.channel_projection = (
+            nn.Conv2d(input_channels, channels, kernel_size=1, bias=False)
+            if input_channels is not None and input_channels != channels
+            else nn.Identity()
+        )
         self.pool = nn.AdaptiveAvgPool2d(pool_size)
         flattened_channels = channels * pool_size * pool_size
         self.projection = (
@@ -70,6 +87,7 @@ class LightRoIHead(nn.Module):
         self.out_channels = output_channels or flattened_channels
 
     def forward(self, pooled_features: torch.Tensor) -> torch.Tensor:
+        pooled_features = self.channel_projection(pooled_features)
         return self.projection(self.pool(pooled_features).flatten(start_dim=1))
 
 
@@ -155,6 +173,13 @@ def build_detector(kind: str = "light_rcnn", **kwargs) -> nn.Module:
 def light_rcnn_from_config(config: dict, *, pretrained: bool = False) -> LightRCNN:
     """Use the same architecture when training, validating and loading checkpoints."""
     model = config["model"]
+    architecture = model.get("architecture", "light_rcnn")
+    if architecture == "light_rcnn_v3":
+        from light_rcnn.model.v3 import light_rcnn_v3_from_config
+
+        return light_rcnn_v3_from_config(config, pretrained=pretrained)
+    if architecture != "light_rcnn":
+        raise ValueError(f"Unsupported Light R-CNN architecture: {architecture}")
     train_cfg = config.get("train", {})
     raw_anchor_sizes = model.get("rpn_anchor_sizes")
     if raw_anchor_sizes is not None:

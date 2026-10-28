@@ -1,17 +1,18 @@
 # Project roadmap
 
-## Current scaffold
+## Current scaffold and candidate
 
-- MobileNetV3-Large features at strides 8/16/32.
-- Repeated normalized bidirectional BiFPN fusion with depthwise separable convolutions.
+- v2 uses MobileNetV3-Large features at strides 8/16/32 and repeated normalized BiFPN fusion.
+- v3 candidate adds the stride-4 C2/P2 level and uses a single-pass lightweight FPN over P2-P5.
 - Standard Faster R-CNN anchor-based RPN and two-stage RoI heads.
-- MobileNetV3 + BiFPN student backbone, smaller RPN proposal budget, 10-channel projection before multi-scale RoIAlign, and a configurable GAP/spatial single-FC RoI head; the GAP model remains the default until full-validation ablation supports a change.
+- v2 full COCO validation reached AP@[.50:.95] 28.82%. Its 10.99% AP-small motivates testing P2 in v3.
+- v3 narrows the RoI projection, transfers the v2 MobileNetV3 feature extractor, and enables Faster R-CNN teacher feature/logit distillation.
 - COCO dataset adapter and shared official AP evaluator, resumable training with best-AP selection, aligned teacher/student distillation, fixed-shape ONNX export entry point, and PyTorch timing scripts.
 
 ## Comparison roles
 
 - **Vanilla baseline:** torchvision Faster R-CNN ResNet-50-FPN with COCO weights.
-- **Candidate under development:** Light R-CNN, an optimized Faster R-CNN that retains the anchor-based RPN and RoI head but uses a MobileNetV3 + BiFPN backbone, fewer test proposals and a compressed RoI head.
+- **Candidate under development:** Lite R-CNN v3 retains Faster R-CNN's anchor-based RPN and two-stage RoI detector with a MobileNetV3 + four-level lightweight FPN.
 - **Real-time reference:** Ultralytics YOLO26 nano (`yolo26n.pt`) at 640 input resolution by default. YOLO26 has multiple sizes and supports optional end-to-end NMS-free inference, so report the exact variant and inference mode.
 - Compare on identical COCO val2017 images, 640-pixel maximum dimension, batch=1, T4 and FP32 for the initial framework baseline. Framework resize/padding details differ, so record them alongside the metrics. The starter scripts preload images and include model transforms and postprocessing in timed calls while excluding file decode. Report AP@[.50:.95], AP50, AP75, parameters, FLOPs, p50/p95 latency, and NMS time. Report end-to-end latency separately from model-only latency.
 
@@ -26,4 +27,4 @@
 
 ## Known gaps
 
-This repository does not ship a trained detector or validated COCO/T4 results. The trainer now validates with official COCOeval, selects best.pth by AP@[.50:.95], saves last.pth and per-loss history, and resumes optimizer/scheduler/scaler/RNG state at epoch boundaries. Optional distillation runs a frozen ResNet50-FPN teacher on the student-transformed input and aligns stride 8/16/32 features plus identical sampled RoIs. These paths are covered by CPU synthetic-data integration tests; accuracy gains and T4 AMP behavior still require real training. See [TRAINING.md](TRAINING.md). The student retains standard RPN proposal generation and two-stage RoI refinement. TensorRT support for RoIAlign and NMS must be validated on the target version. The initial configuration uses 640-pixel images; expected AP and latency require measurement and may require tuning.
+The v2 checkpoint and full-val results are stored in `outputs/coco_4090_v2/`. The v3 architecture and training preset are implemented, but no v3 checkpoint or full-val result exists yet. Its AP gain and the latency cost of P2 remain hypotheses until a full 48-epoch COCO run and matched batch-1 profiling are completed. Optional distillation supports both the v2 stride 8/16/32 maps and v3 stride 4/8/16/32 maps plus shared sampled RoIs. TensorRT support for RoIAlign and NMS still requires validation on the target version. See [TRAINING.md](TRAINING.md) and [the v3 experiment record](experiments/2026-10-28-v3-design.md).

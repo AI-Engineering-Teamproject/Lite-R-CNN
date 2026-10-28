@@ -1,5 +1,32 @@
 # Lite R-CNN 실험 기록
 
+## 2026-10-28 — v3 설계 및 학습 준비
+
+### v2에서 확인한 개선 과제
+
+- v2는 전체 val2017에서 최고 AP@[.50:.95] 28.82%, AP-small 10.99%를 기록했지만 작은 객체 성능이 약합니다. v2 backbone은 stride 8/16/32의 C3-C5만 사용하므로 stride 4의 고해상도 P2가 없습니다.
+- v2 구성은 ImageNet 사전학습 backbone만 사용했고, `distillation.enabled: false`였습니다. 검출부와 RPN은 COCO 검출 teacher의 학습 신호를 받지 않아, backbone 경량화에 따른 표현력 저하를 보완할 수 있는 신호를 활용하지 못했습니다.
+- v2는 MobileNetV3 특징을 96채널에 투영한 뒤 2회 BiFPN을 수행하고, RoI 입력을 64채널로 투영합니다. 고해상도 P2가 없는 상황에서도 여러 번의 융합 및 넓은 RoI 표현을 사용하므로, 고정 연산을 줄이면서 P2를 추가할 수 있는 경량 FPN으로 교체할 여지가 있습니다.
+- 36 epoch에서 최고점은 epoch 25였고 이후 AP가 28.5~28.8%에 머물렀습니다. 학습 loss는 계속 감소했으므로, v3에서 AP 향상 여부는 전체 COCO 검증으로 판단하고 최고 checkpoint를 고릅니다.
+
+### v3 변경
+
+1. **stride 4 P2 추가:** MobileNetV3 feature index 3/6/12/16에서 C2-C5를 추출해 P2-P5를 구성하고, P5에서 max-pool을 두 번 적용해 RPN 전용 P6/P7을 만듭니다. 레벨당 단일 anchor scale(8/16/32/64/128/256)과 3개 종횡비를 사용해 v2의 9개 anchor/위치에서 3개/위치로 줄이며, P2로 작은 객체 proposal을 보강하는 가설입니다.
+2. **2회 BiFPN을 단일 lightweight FPN으로 교체:** 64채널 lateral projection, top-down addition, depthwise-separable output convolution을 사용합니다. C2의 추가 연산을 고려해 v2의 96채널에서 FPN 64채널로 낮춥니다.
+3. **RoI 계산량 축소:** 64채널 특징에서 RoIAlign을 수행한 뒤 각 pooled RoI에 1×1 64→32 projection을 적용하고 7×7 공간 head를 유지합니다. 전역 P2 feature map에 projection을 매번 수행하지 않고 후보 RoI에 한정합니다. 7×7×32 입력은 v2의 7×7×64보다 FC 입력 곱셈 수가 절반이며, 공간 정보를 버리지 않습니다.
+4. **v2 backbone transfer:** `--init-backbone`은 v2 checkpoint에서 MobileNetV3 feature extractor만 가져옵니다. 새 P2-P5 FPN, RPN 및 RoI head는 v3 구조에 맞춰 초기화합니다.
+5. **Faster R-CNN teacher distillation:** COCO 사전학습 ResNet50-FPN의 stride 4/8/16/32 feature와 동일 student proposal의 RoI logits를 증류합니다. teacher는 학습에만 사용되고 배포 모델에는 포함되지 않습니다.
+
+속도 비용도 사전에 확인했습니다. 640 입력에서 v2는 P3-P5의 8,400 위치 × 9 anchor로 75,600개/image, v3는 P2-P7의 34,125 위치 × 3 anchor로 102,375개/image입니다(약 35.4% 증가). 위치당 RPN 출력 폭은 줄지만 고해상도 P2 때문에 총 후보 점수와 RPN feature 연산은 증가할 수 있습니다. v3는 지연 시간이 자동으로 개선된다고 가정하지 않고, full-val AP-small 향상과 batch-1 latency/메모리를 함께 비교합니다.
+
+### 재현 설정 및 판정 기준
+
+- 설정: `configs/coco_v3.yaml`; 출력: `outputs/coco_4090_v3/`; 실행 명령은 README의 v3 학습 절차를 따릅니다.
+- COCO train 118,287장, val 5,000장, 입력 640, seed 42, batch 4, AMP, 48 epoch를 사용합니다. v2와 같은 full-val COCOeval로 AP@[.50:.95], AP50, AP75, AP-small/medium/large를 비교합니다.
+- 현재 v3는 구현 및 설정 단계이며 학습 결과는 없습니다. v2 대비 AP 개선은 **가설**입니다. 최고 checkpoint 기준 AP가 v2의 28.82%를 넘는지, 특히 AP-small이 오르는지 확인합니다. 추론 속도는 동일 장치·정밀도·입력·batch=1 조건에서 측정하고, P2 추가가 지연 시간에 미친 영향도 함께 보고합니다.
+- 코드 경로 점검: synthetic 320×320 추론이 P2-P7 RPN과 RoI/postprocess까지 완료됐고, 6개 레벨에서 각각 3 anchors/location을 확인했습니다. synthetic 증류 forward에서 student/teacher feature key `0/1/2/3`가 정렬되고 모든 supervised/feature/RoI loss가 finite였습니다. v2 checkpoint는 원래 v2 factory에 strict load됐으며, v2→v3 MobileNet feature extractor는 308/308 tensor key/shape가 호환됐습니다. v3는 3,622,918 parameters로 v2의 4,187,700 대비 13.5% 적습니다. 이 수치는 파라미터 개수만 비교하며 FLOPs/latency는 측정하지 않았습니다. COCO 학습·AP 검증도 남아 있습니다.
+- 첫 v3 학습 뒤 결과 폴더의 `RESULTS.md`, `history.jsonl`, `config.yaml`, `best.pth`를 보존하고 이 기록에 실제 지표와 처리량을 추가합니다.
+
 RTX 4090의 첫 전체 COCO 학습 결과(AP@[.50:.95] 최고 25.66%, epoch 27)와 후속 anchor 실험 계획은 [첫 학습 결과 보고서](experiments/2026-10-19-rtx4090-first-run.md)에 정리했습니다.
 
 ## 2026-10-19 — 첫 COCO 전체 학습 진단 및 모델/후처리 개선 (v2 아키텍처)

@@ -203,6 +203,10 @@ def main():
         "--resume", help="Restore the complete training state at an epoch boundary"
     )
     startup.add_argument("--init-weights", help="Initialize student weights for a new run, e.g. KD")
+    parser.add_argument(
+        "--init-backbone",
+        help="Initialize only the MobileNetV3 feature extractor from another Lite R-CNN checkpoint",
+    )
     distillation = parser.add_mutually_exclusive_group()
     distillation.add_argument(
         "--distill", action="store_true", help="Enable feature and RoI distillation"
@@ -228,6 +232,8 @@ def main():
     )
     parser.add_argument("--validate-every", type=int)
     args = parser.parse_args()
+    if args.init_backbone and (args.resume or args.init_weights):
+        parser.error("--init-backbone cannot be combined with --resume or --init-weights")
     saved = torch.load(args.resume, map_location="cpu", weights_only=True) if args.resume else None
     if saved and saved.get("format_version") != 1:
         raise ValueError("Legacy checkpoint: use --init-weights for a new run instead of --resume")
@@ -351,8 +357,35 @@ def main():
     if not len(validation):
         raise ValueError("Validation dataset must contain images")
     student = light_rcnn_from_config(
-        config, pretrained=not (saved or args.init_weights) and config["model"]["pretrained"]
+        config,
+        pretrained=not (saved or args.init_weights or args.init_backbone)
+        and config["model"]["pretrained"],
     )
+    if args.init_backbone:
+        initial_backbone = torch.load(args.init_backbone, map_location="cpu", weights_only=True)
+        source_state = initial_backbone.get("model", initial_backbone)
+        student_state = student.state_dict()
+        prefix = "backbone.body.features."
+        compatible = {
+            key: value
+            for key, value in source_state.items()
+            if key.startswith(prefix)
+            and key in student_state
+            and student_state[key].shape == value.shape
+        }
+        expected = {key for key in student_state if key.startswith(prefix)}
+        if not compatible or compatible.keys() != expected:
+            missing = sorted(expected - compatible.keys())
+            raise ValueError(
+                "Checkpoint does not contain the complete compatible MobileNetV3 feature "
+                f"extractor; missing keys: {missing[:8]}"
+            )
+        student.load_state_dict(compatible, strict=False)
+        config["initialization"] = {
+            "type": "mobilenet_v3_backbone_only",
+            "checkpoint": str(Path(args.init_backbone)),
+        }
+        print(f"Initialized {len(compatible)} MobileNetV3 tensors from {args.init_backbone}")
     if saved or args.init_weights:
         initial = saved or torch.load(args.init_weights, map_location="cpu", weights_only=True)
         if "config" in initial:

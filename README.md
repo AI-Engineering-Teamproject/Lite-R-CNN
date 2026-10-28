@@ -4,6 +4,8 @@ Lite R-CNN은 **MobileNetV3-Large와 BiFPN을 적용해 경량화한 Faster R-CN
 
 v2는 COCO 2017 전체 학습 세트로 36 epoch 학습했고, 전체 val2017 5,000장 평가에서 최고 AP@[.50:.95] **28.82% (epoch 25)**를 기록했습니다. 최고 체크포인트는 `outputs/coco_4090_v2/best.pth`입니다. RTX 4090 단일 이미지 측정에서 Lite R-CNN은 p50 4.26ms였지만, 이 지연 시간 결과는 같은 환경에서 수행한 COCO 정확도 비교를 대신하지 않습니다. 상세 결과는 [실험 기록](docs/EXPERIMENT_LOG.md)을 참고하십시오.
 
+v3는 stride 4의 P2 특징을 추가해 작은 객체 정보 손실을 줄이고, 두 번 반복하는 BiFPN 대신 한 번 통과하는 4단계 lightweight FPN을 사용합니다. v2에서 학습한 MobileNetV3 가중치를 이어받고 COCO 사전학습 Faster R-CNN의 feature 및 RoI logits 증류를 적용하도록 구성했습니다. v3는 아직 학습·검증 전인 후보 모델이며, 성능 향상은 전체 val2017 실험 후에만 판단합니다.
+
 > 제품·문서 표기는 **Lite R-CNN**을 사용합니다. 기존 Python API와 체크포인트 이름은 호환성을 위해 `LightRCNN`, `light_rcnn`을 사용합니다.
 
 ## 현재 구현 구조
@@ -34,18 +36,47 @@ flowchart LR
 
 따라서 Lite R-CNN은 **MobileNetV3-Large와 BiFPN을 적용한 경량 Faster R-CNN 변형**입니다. v2의 파라미터 수는 4,187,700개(약 4.19M)입니다. 파라미터가 적다는 사실만으로 정확도나 전체 추론 속도 우위를 의미하지 않으며, 비교 결과는 동일 조건 평가로 확인해야 합니다.
 
+### v3 후보 구조
+
+```mermaid
+flowchart LR
+    A[MobileNetV3 C2-C5] --> B[단일 64채널 Lite FPN P2-P5]
+    B --> C[P6-P7 max-pool]
+    B --> D[Multi-scale RoIAlign P2-P5]
+    C --> E[5-level Anchor RPN<br/>3 anchors per location]
+    E --> F[최대 300 proposals]
+    D --> G[RoI별 64→32 projection]
+    F --> D
+    G --> H[7×7 spatial FC head]
+    H --> I[COCO class/box + NMS]
+```
+
+P2는 작은 객체의 고해상도 특징을 제공하고, P6/P7은 별도 backbone stage 없이 큰 proposal의 RPN scale을 보완합니다. 위치당 anchor는 9개에서 3개로 줄지만 P2/P6/P7 레벨 추가로 640 입력에서 총 anchor 수는 이미지당 75,600개(v2)에서 102,375개(v3)로 약 35.4% 늘어납니다. 따라서 실제 속도 향상은 미확정이며, full-val AP-small과 batch-1 latency를 같이 확인합니다. RoI별 projection은 전체 feature map의 반복 투영을 피하도록 설계했습니다. Faster R-CNN의 proposal 기반 2단계 검출은 유지합니다. v3 AP 및 지연 시간은 [v3 설계·실험 기록](docs/experiments/2026-10-28-v3-design.md)에 실제 학습 후 기입합니다.
+
+현재 v3 설정의 파라미터는 **3,622,918개**로 v2(4,187,700개)보다 13.5% 적습니다. 파라미터 감소만으로 FLOPs나 추론 지연 시간 감소를 단정할 수 없으며, P2가 추가된 RPN의 실제 비용은 GPU에서 측정해야 합니다.
+
 ## 모델 설계·구현·학습 담당 작업 순서
 
-1. **기준 구조 고정:** `configs/coco.yaml`의 입력 크기, 백본, BiFPN 채널/반복 수, RoI 채널, RPN 후보 수를 실험 설정으로 기록합니다.
+1. **기준 구조 고정:** v2는 `configs/coco.yaml`, v3는 `configs/coco_v3.yaml`의 입력 크기, 백본/FPN, RoI 채널, RPN proposal/anchor 설정을 기록합니다.
 2. **학습 가능한 구조 점검:** `src/light_rcnn/model/layers.py`와 `detector.py`에서 특징 맵 크기와 RoI 출력 차원을 확인합니다. 클래스 ID 및 COCO annotation 매핑은 Faster R-CNN과 일치시킵니다.
-3. **지도학습 기준 모델:** 지식 증류 없이 COCO로 먼저 학습해 학습 손실과 검증 AP가 정상인지 확인합니다. 기본 학습 증강은 RGB 입력 정규화와 train 전용 확률 0.5 좌우 반전이며, validation은 원본 이미지로 평가합니다. 작은 subset은 파이프라인 점검에만 사용하고 최종 성능으로 보고하지 않습니다.
+3. **지도학습 기준 모델:** v2는 증류 없이 학습합니다. v3는 설정에서 Faster R-CNN teacher 증류를 켜고 v2 backbone으로 초기화합니다. 기본 학습 증강은 RGB 입력 정규화와 train 전용 확률 0.5 좌우 반전이며, validation은 원본 이미지로 평가합니다. 작은 subset은 파이프라인 점검에만 사용하고 최종 성능으로 보고하지 않습니다.
 4. **최적 체크포인트 선택:** 매 검증 주기마다 COCO AP@[.50:.95]를 계산합니다. `last.pth`는 재개용, `best.pth`는 최고 검증 AP 모델입니다.
-5. **증류 실험:** 지도학습 결과를 기준으로 Faster R-CNN ResNet50-FPN 교사를 이용한 feature/RoI 지식 증류를 별도 실행합니다. 증류가 정확도를 높이는지 검증 전후 AP로 비교합니다.
+5. **증류 실험:** v2의 지도학습 결과와 v3의 Faster R-CNN ResNet50-FPN feature/RoI 증류 결과를 full-val AP로 비교합니다.
 6. **효율 조정:** 백본/피라미드 폭, RoI 채널 수, 이미지 크기와 RPN proposal 수를 하나씩 조정하고, AP·파라미터·FLOPs·p50/p95 지연 시간을 함께 기록합니다.
 
-학습 재개, 손실 기록, 증류 실행 방법은 [학습 안내](docs/TRAINING.md)에 있습니다. 지식 증류는 기본값에서 꺼져 있으며 `--distill` 또는 분류 전용 실험의 `--distill-roi-only`로 켭니다. 교사는 학습 중에만 사용하고 Lite R-CNN 추론 모델에는 포함되지 않습니다.
+학습 재개, 손실 기록, 증류 실행 방법은 [학습 안내](docs/TRAINING.md)에 있습니다. v2 기본 설정에서는 증류가 꺼져 있고 `--distill` 또는 `--distill-roi-only`로 켤 수 있습니다. v3 설정은 feature/RoI 증류를 활성화합니다. 교사는 학습 중에만 사용하고 Lite R-CNN 추론 모델에는 포함되지 않습니다.
 
 Lite R-CNN 내부 설계 ablation과 COCO 결과는 [실험 기록](docs/EXPERIMENT_LOG.md)에 정리합니다.
+
+### v3 학습
+
+v3는 기존 v2 checkpoint를 그대로 불러오는 대신, 호환되는 MobileNetV3 feature extractor만 초기화에 사용합니다. FPN, RPN, RoI head는 새 구조에 맞게 초기화되며 COCO Faster R-CNN teacher로 학습 중 증류합니다. teacher 가중치가 torchvision 캐시에 없다면 첫 실행에서 다운로드가 필요합니다.
+
+```powershell
+python scripts/train.py --config configs/coco_v3.yaml --device cuda --init-backbone outputs/coco_4090_v2/best.pth
+```
+
+기본 설정은 COCO 전체 train/val, 640 입력, batch 4, 48 epoch입니다. 학습 결과는 `outputs/coco_4090_v3/`에 저장됩니다. `RESULTS.md`와 `history.jsonl`에서 매 epoch 지표를 확인하고, 최고 AP의 `best.pth`를 선택합니다. 검증 AP가 v2의 28.82%보다 개선되고, batch-1 지연 시간과 메모리도 허용 범위인지 확인하기 전까지 v3를 우수 모델로 간주하지 않습니다.
 
 ## 설치 및 데이터
 
