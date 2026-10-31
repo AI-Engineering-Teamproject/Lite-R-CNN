@@ -1,0 +1,22 @@
+{
+  "model": "faster_rcnn",
+  "weights": "torchvision_coco_v1",
+  "image_size": 640,
+  "images_evaluated": 5000,
+  "evaluation_batch_size": 4,
+  "detections": 144205,
+  "images_with_detections": 4988,
+  "max_detection_score": 0.9999604225158691,
+  "mean_best_iou_any_class": 0.8978461971990764,
+  "mean_best_iou_same_class": 0.8902492745004594,
+  "images_with_iou50_any_class": 4938,
+  "images_with_iou50_same_class": 4922,
+  "evaluation_scope": "full",
+  "evaluation_subset_seed": null,
+  "AP_50_95": 0.32394413642585046,
+  "AP_50": 0.520868040452502,
+  "AP_75": 0.34289515913807933,
+  "AP_small": 0.12767366002730682,
+  "AP_medium": 0.3495426501758818,
+  "AP_large": 0.4977655943858464
+}

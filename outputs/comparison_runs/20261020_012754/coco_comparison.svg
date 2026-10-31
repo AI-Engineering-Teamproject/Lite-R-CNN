@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="500" viewBox="0 0 1120 500">
+<rect width="100%" height="100%" fill="#fff"/>
+<style>text{font-family:Arial,sans-serif;fill:#202124}.title{font-size:25px;font-weight:bold}.head{font-size:18px;font-weight:bold}.label{font-size:16px}.val{font-size:14px}.axis{font-size:12px;fill:#666}.note{font-size:12px;fill:#555}</style>
+<text x="42" y="42" class="title">COCO val2017: accuracy and RTX 4090 latency</text>
+<text x="40" y="94" class="head">COCO AP@[.50:.95] (higher is better)</text>
+<text x="590" y="94" class="head">Inference latency, batch 1 (lower is better)</text>
+<line x1="215.0" y1="125" x2="215.0" y2="365" stroke="#e5e7eb"/>
+<text x="215.0" y="385" text-anchor="middle" class="axis">0%</text>
+<line x1="277.0" y1="125" x2="277.0" y2="365" stroke="#e5e7eb"/>
+<text x="277.0" y="385" text-anchor="middle" class="axis">10%</text>
+<line x1="339.0" y1="125" x2="339.0" y2="365" stroke="#e5e7eb"/>
+<text x="339.0" y="385" text-anchor="middle" class="axis">20%</text>
+<line x1="401.0" y1="125" x2="401.0" y2="365" stroke="#e5e7eb"/>
+<text x="401.0" y="385" text-anchor="middle" class="axis">30%</text>
+<line x1="463.0" y1="125" x2="463.0" y2="365" stroke="#e5e7eb"/>
+<text x="463.0" y="385" text-anchor="middle" class="axis">40%</text>
+<line x1="525.0" y1="125" x2="525.0" y2="365" stroke="#e5e7eb"/>
+<text x="525.0" y="385" text-anchor="middle" class="axis">50%</text>
+<line x1="775.0" y1="125" x2="775.0" y2="365" stroke="#e5e7eb"/>
+<text x="775.0" y="385" text-anchor="middle" class="axis">0 ms</text>
+<line x1="831.0" y1="125" x2="831.0" y2="365" stroke="#e5e7eb"/>
+<text x="831.0" y="385" text-anchor="middle" class="axis">3 ms</text>
+<line x1="887.0" y1="125" x2="887.0" y2="365" stroke="#e5e7eb"/>
+<text x="887.0" y="385" text-anchor="middle" class="axis">6 ms</text>
+<line x1="943.0" y1="125" x2="943.0" y2="365" stroke="#e5e7eb"/>
+<text x="943.0" y="385" text-anchor="middle" class="axis">9 ms</text>
+<line x1="999.0" y1="125" x2="999.0" y2="365" stroke="#e5e7eb"/>
+<text x="999.0" y="385" text-anchor="middle" class="axis">12 ms</text>
+<text x="200" y="168" text-anchor="end" class="label">Faster R-CNN</text>
+<rect x="215" y="145" width="200.8" height="30" rx="4" fill="#4e79a7"/>
+<text x="422.8" y="165" class="val">32.39% (AP50 52.09%)</text>
+<text x="760" y="162" text-anchor="end" class="label">Faster R-CNN</text>
+<rect x="775" y="145" width="144.5" height="21" rx="4" fill="#4e79a7" opacity="1"/>
+<text x="925.5" y="160" class="val">7.74</text>
+<rect x="775" y="175" width="168.1" height="21" rx="4" fill="#4e79a7" opacity="0.55"/>
+<text x="949.1" y="190" class="val">9.01</text>
+<text x="200" y="246" text-anchor="end" class="label">Lite R-CNN v2</text>
+<rect x="215" y="223" width="178.7" height="30" rx="4" fill="#59a14f"/>
+<text x="400.7" y="243" class="val">28.82% (AP50 47.77%)</text>
+<text x="760" y="240" text-anchor="end" class="label">Lite R-CNN v2</text>
+<rect x="775" y="223" width="81.3" height="21" rx="4" fill="#59a14f" opacity="1"/>
+<text x="862.3" y="238" class="val">4.36</text>
+<rect x="775" y="253" width="228.8" height="21" rx="4" fill="#59a14f" opacity="0.55"/>
+<text x="1009.8" y="268" class="val">12.26</text>
+<text x="200" y="324" text-anchor="end" class="label">YOLO26n</text>
+<rect x="215" y="301" width="247.9" height="30" rx="4" fill="#f28e2b"/>
+<text x="469.9" y="321" class="val">39.99% (AP50 55.30%)</text>
+<text x="760" y="318" text-anchor="end" class="label">YOLO26n</text>
+<rect x="775" y="301" width="65.2" height="21" rx="4" fill="#f28e2b" opacity="1"/>
+<text x="846.2" y="316" class="val">3.49</text>
+<rect x="775" y="331" width="76.1" height="21" rx="4" fill="#f28e2b" opacity="0.55"/>
+<text x="857.1" y="346" class="val">4.08</text>
+<rect x="775" y="415" width="14" height="14" rx="2" fill="#777"/><text x="797" y="427" class="axis">p50</text>
+<rect x="850" y="415" width="14" height="14" rx="2" fill="#777" opacity=".55"/><text x="872" y="427" class="axis">p95</text>
+<text x="42" y="465" class="note">All models: COCO val2017 5,000 images for AP; 640 input, FP32, batch 1, RTX 4090 latency benchmark (50 warmups, 500 iterations, 64-image cycle).</text>
+<text x="42" y="483" class="note">Latency scope includes model transforms and postprocessing, excludes image decode. Framework/evaluation pipelines differ; compare as measured under this project protocol.</text>
+</svg>

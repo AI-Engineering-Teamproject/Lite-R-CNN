@@ -1,0 +1,200 @@
+{
+  "device": "NVIDIA GeForce RTX 4090",
+  "checkpoint": "outputs/coco_4090_v2/best.pth",
+  "image": "data/coco/images/val2017/000000129756.jpg",
+  "warmup": 15,
+  "iterations": 40,
+  "resolution": [
+    480,
+    640
+  ],
+  "stages": {
+    "transform": {
+      "cuda_ms_median": 0.083,
+      "cuda_ms_mean": 0.579,
+      "cpu_call_ms_median": 0.095
+    },
+    "backbone": {
+      "cuda_ms_median": 2.163,
+      "cuda_ms_mean": 6.704,
+      "cpu_call_ms_median": 2.176
+    },
+    "mobilenet_body": {
+      "cuda_ms_median": 1.469,
+      "cuda_ms_mean": 5.664,
+      "cpu_call_ms_median": 1.483
+    },
+    "bifpn_neck": {
+      "cuda_ms_median": 0.652,
+      "cuda_ms_mean": 1.004,
+      "cpu_call_ms_median": 0.661
+    },
+    "rpn": {
+      "cuda_ms_median": 1.283,
+      "cuda_ms_mean": 3.949,
+      "cpu_call_ms_median": 1.291
+    },
+    "roi_projection_and_align": {
+      "cuda_ms_median": 0.405,
+      "cuda_ms_mean": 0.857,
+      "cpu_call_ms_median": 0.414
+    },
+    "roi_head_fc": {
+      "cuda_ms_median": 0.091,
+      "cuda_ms_mean": 0.223,
+      "cpu_call_ms_median": 0.064
+    },
+    "class_box_predictor": {
+      "cuda_ms_median": 0.016,
+      "cuda_ms_mean": 0.021,
+      "cpu_call_ms_median": 0.038
+    },
+    "roi_heads_total": {
+      "cuda_ms_median": 1.011,
+      "cuda_ms_mean": 1.841,
+      "cpu_call_ms_median": 1.021
+    }
+  },
+  "cuda_operator_top20": [
+    {
+      "operator": "lite_rcnn_inference",
+      "self_cuda_ms": 42.719,
+      "calls": 5,
+      "self_cpu_ms": 0.0,
+      "shapes": ""
+    },
+    {
+      "operator": "aten::cudnn_convolution",
+      "self_cuda_ms": 1.818,
+      "calls": 350,
+      "self_cpu_ms": 3.097,
+      "shapes": ""
+    },
+    {
+      "operator": "torchvision::nms",
+      "self_cuda_ms": 1.502,
+      "calls": 10,
+      "self_cpu_ms": 0.157,
+      "shapes": ""
+    },
+    {
+      "operator": "aten::cudnn_batch_norm",
+      "self_cuda_ms": 1.495,
+      "calls": 300,
+      "self_cpu_ms": 1.658,
+      "shapes": ""
+    },
+    {
+      "operator": "void cudnn::bn_fw_inf_1C11_kernel_NCHW<float, float, true, 1>(float, float, cudnnTensorStruct, float const*, cudnnTensorStruct, float*, cudnnTensorStruct, float const*, float const*, float const*, float const*, float)",
+      "self_cuda_ms": 1.495,
+      "calls": 300,
+      "self_cpu_ms": 0.0,
+      "shapes": ""
+    },
+    {
+      "operator": "vision::ops::(anonymous namespace)::gather_keep_from_mask(bool*, unsigned long long const*, int)",
+      "self_cuda_ms": 1.372,
+      "calls": 10,
+      "self_cpu_ms": 0.0,
+      "shapes": ""
+    },
+    {
+      "operator": "aten::_conv_depthwise2d",
+      "self_cuda_ms": 0.756,
+      "calls": 115,
+      "self_cpu_ms": 0.305,
+      "shapes": ""
+    },
+    {
+      "operator": "aten::topk",
+      "self_cuda_ms": 0.623,
+      "calls": 15,
+      "self_cpu_ms": 0.184,
+      "shapes": ""
+    },
+    {
+      "operator": "void at::native::(anonymous namespace)::conv_depthwise2d_forward_kernel<3, float, int>(at::GenericPackedTensorAccessor<float const, 4ul, at::DefaultPtrTraits, int>, at::GenericPackedTensorAccessor<float, 4ul, at::DefaultPtrTraits, int>, at::GenericPackedTensorAccessor<float const, 4ul, at::DefaultPtrTraits, int>, at::GenericPackedTensorAccessor<float const, 1ul, at::DefaultPtrTraits, int>, bool, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int)",
+      "self_cuda_ms": 0.506,
+      "calls": 85,
+      "self_cpu_ms": 0.0,
+      "shapes": ""
+    },
+    {
+      "operator": "aten::mul",
+      "self_cuda_ms": 0.433,
+      "calls": 265,
+      "self_cpu_ms": 0.739,
+      "shapes": ""
+    },
+    {
+      "operator": "void cutlass::Kernel2<cutlass_80_tensorop_s1688gemm_64x64_32x6_nn_align4>(cutlass_80_tensorop_s1688gemm_64x64_32x6_nn_align4::Params)",
+      "self_cuda_ms": 0.412,
+      "calls": 80,
+      "self_cpu_ms": 0.0,
+      "shapes": ""
+    },
+    {
+      "operator": "void cutlass::Kernel2<cutlass_80_tensorop_s1688gemm_64x64_16x6_nn_align4>(cutlass_80_tensorop_s1688gemm_64x64_16x6_nn_align4::Params)",
+      "self_cuda_ms": 0.37,
+      "calls": 90,
+      "self_cpu_ms": 0.0,
+      "shapes": ""
+    },
+    {
+      "operator": "void at::native::vectorized_elementwise_kernel<4, at::native::(anonymous namespace)::launch_clamp_scalar(at::TensorIteratorBase&, c10::Scalar, c10::Scalar, at::native::detail::ClampLimits)::{lambda()#1}::operator()() const::{lambda()#7}::operator()() const::{lambda(float)#1}, std::array<char*, 2ul> >(int, at::native::(anonymous namespace)::launch_clamp_scalar(at::TensorIteratorBase&, c10::Scalar, c10::Scalar, at::native::detail::ClampLimits)::{lambda()#1}::operator()() const::{lambda()#7}::operator()() const::{lambda(float)#1}, std::array<char*, 2ul>)",
+      "self_cuda_ms": 0.343,
+      "calls": 175,
+      "self_cpu_ms": 0.0,
+      "shapes": ""
+    },
+    {
+      "operator": "void at::native::elementwise_kernel<128, 2, at::native::gpu_kernel_impl_nocast<at::native::BinaryFunctor<float, float, float, at::native::binary_internal::MulFunctor<float> > >(at::TensorIteratorBase&, at::native::BinaryFunctor<float, float, float, at::native::binary_internal::MulFunctor<float> > const&)::{lambda(int)#1}>(int, at::native::gpu_kernel_impl_nocast<at::native::BinaryFunctor<float, float, float, at::native::binary_internal::MulFunctor<float> > >(at::TensorIteratorBase&, at::native::BinaryFunctor<float, float, float, at::native::binary_internal::MulFunctor<float> > const&)::{lambda(int)#1})",
+      "self_cuda_ms": 0.338,
+      "calls": 190,
+      "self_cpu_ms": 0.0,
+      "shapes": ""
+    },
+    {
+      "operator": "void at::native::vectorized_elementwise_kernel<4, at::native::CUDAFunctor_add<float>, std::array<char*, 3ul> >(int, at::native::CUDAFunctor_add<float>, std::array<char*, 3ul>)",
+      "self_cuda_ms": 0.304,
+      "calls": 230,
+      "self_cpu_ms": 0.0,
+      "shapes": ""
+    },
+    {
+      "operator": "aten::index",
+      "self_cuda_ms": 0.297,
+      "calls": 115,
+      "self_cpu_ms": 0.513,
+      "shapes": ""
+    },
+    {
+      "operator": "aten::add",
+      "self_cuda_ms": 0.273,
+      "calls": 200,
+      "self_cpu_ms": 0.551,
+      "shapes": ""
+    },
+    {
+      "operator": "void at::native::sbtopk::gatherTopK<float, unsigned int, 1, false>(at::cuda::detail::TensorInfo<float const, unsigned int>, unsigned int, unsigned int, bool, unsigned int, unsigned int, at::cuda::detail::TensorInfo<float, unsigned int>, unsigned int, at::cuda::detail::TensorInfo<long, unsigned int>, unsigned int, float*)",
+      "self_cuda_ms": 0.268,
+      "calls": 10,
+      "self_cpu_ms": 0.0,
+      "shapes": ""
+    },
+    {
+      "operator": "void at::native::radixSortKVInPlace<-2, -1, 32, 32, float, long, unsigned int>(at::cuda::detail::TensorInfo<float, unsigned int>, unsigned int, unsigned int, unsigned int, at::cuda::detail::TensorInfo<long, unsigned int>, unsigned int, bool)",
+      "self_cuda_ms": 0.259,
+      "calls": 20,
+      "self_cpu_ms": 0.0,
+      "shapes": ""
+    },
+    {
+      "operator": "aten::add_",
+      "self_cuda_ms": 0.254,
+      "calls": 175,
+      "self_cpu_ms": 0.33,
+      "shapes": ""
+    }
+  ]
+}

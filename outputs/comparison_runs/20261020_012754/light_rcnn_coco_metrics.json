@@ -1,0 +1,22 @@
+{
+  "model": "light_rcnn",
+  "weights": "/home/user/Desktop/Lite-R-CNN/outputs/coco_4090_v2/best.pth",
+  "image_size": 640,
+  "images_evaluated": 5000,
+  "evaluation_batch_size": 4,
+  "detections": 122297,
+  "images_with_detections": 4980,
+  "max_detection_score": 0.9999501705169678,
+  "mean_best_iou_any_class": 0.8910495767164975,
+  "mean_best_iou_same_class": 0.8818008018381893,
+  "images_with_iou50_any_class": 4918,
+  "images_with_iou50_same_class": 4894,
+  "evaluation_scope": "full",
+  "evaluation_subset_seed": null,
+  "AP_50_95": 0.28823648592275625,
+  "AP_50": 0.4777059686808381,
+  "AP_75": 0.29918741809919447,
+  "AP_small": 0.10989419024995918,
+  "AP_medium": 0.3175838590265674,
+  "AP_large": 0.4452160393227883
+}

@@ -1,0 +1,1521 @@
+{
+  "input_shape_chw": [
+    3,
+    480,
+    640
+  ],
+  "feature_shapes": {
+    "C3": "[1, 40, 60, 80]",
+    "C4": "[1, 112, 30, 40]",
+    "C5": "[1, 960, 15, 20]",
+    "P3": "[1, 96, 60, 80]",
+    "P4": "[1, 96, 30, 40]",
+    "P5": "[1, 96, 15, 20]"
+  },
+  "summary": {
+    "MobileNetV3 body": {
+      "conv_calls": 62,
+      "MACs": 1302979200,
+      "GMAC": 1.303
+    },
+    "BiFPN neck": {
+      "conv_calls": 19,
+      "MACs": 210182400,
+      "GMAC": 0.2102
+    },
+    "RPN head convs": {
+      "conv_calls": 9,
+      "MACs": 549763200,
+      "GMAC": 0.5498
+    },
+    "RoI projections": {
+      "conv_calls": 3,
+      "MACs": 38707200,
+      "GMAC": 0.0387
+    }
+  },
+  "top_components": [
+    {
+      "component": "RPN rpn.head.conv.0.0",
+      "calls": 3,
+      "GMAC": 0.5225,
+      "example_tensors": [
+        {
+          "input": [
+            1,
+            96,
+            60,
+            80
+          ],
+          "output": [
+            1,
+            96,
+            60,
+            80
+          ],
+          "kernel": [
+            3,
+            3
+          ],
+          "groups": 1,
+          "macs": 398131200
+        },
+        {
+          "input": [
+            1,
+            96,
+            30,
+            40
+          ],
+          "output": [
+            1,
+            96,
+            30,
+            40
+          ],
+          "kernel": [
+            3,
+            3
+          ],
+          "groups": 1,
+          "macs": 99532800
+        }
+      ]
+    },
+    {
+      "component": "MobileNet backbone.body.features.12",
+      "calls": 5,
+      "GMAC": 0.1881,
+      "example_tensors": [
+        {
+          "input": [
+            1,
+            112,
+            30,
+            40
+          ],
+          "output": [
+            1,
+            672,
+            30,
+            40
+          ],
+          "kernel": [
+            1,
+            1
+          ],
+          "groups": 1,
+          "macs": 90316800
+        },
+        {
+          "input": [
+            1,
+            672,
+            30,
+            40
+          ],
+          "output": [
+            1,
+            672,
+            30,
+            40
+          ],
+          "kernel": [
+            3,
+            3
+          ],
+          "groups": 672,
+          "macs": 7257600
+        }
+      ]
+    },
+    {
+      "component": "MobileNet backbone.body.features.13",
+      "calls": 5,
+      "GMAC": 0.1278,
+      "example_tensors": [
+        {
+          "input": [
+            1,
+            112,
+            30,
+            40
+          ],
+          "output": [
+            1,
+            672,
+            30,
+            40
+          ],
+          "kernel": [
+            1,
+            1
+          ],
+          "groups": 1,
+          "macs": 90316800
+        },
+        {
+          "input": [
+            1,
+            672,
+            30,
+            40
+          ],
+          "output": [
+            1,
+            672,
+            15,
+            20
+          ],
+          "kernel": [
+            5,
+            5
+          ],
+          "groups": 672,
+          "macs": 5040000
+        }
+      ]
+    },
+    {
+      "component": "MobileNet backbone.body.features.2",
+      "calls": 3,
+      "GMAC": 0.1192,
+      "example_tensors": [
+        {
+          "input": [
+            1,
+            16,
+            240,
+            320
+          ],
+          "output": [
+            1,
+            64,
+            240,
+            320
+          ],
+          "kernel": [
+            1,
+            1
+          ],
+          "groups": 1,
+          "macs": 78643200
+        },
+        {
+          "input": [
+            1,
+            64,
+            240,
+            320
+          ],
+          "output": [
+            1,
+            64,
+            120,
+            160
+          ],
+          "kernel": [
+            3,
+            3
+          ],
+          "groups": 64,
+          "macs": 11059200
+        }
+      ]
+    },
+    {
+      "component": "MobileNet backbone.body.features.11",
+      "calls": 5,
+      "GMAC": 0.1159,
+      "example_tensors": [
+        {
+          "input": [
+            1,
+            80,
+            30,
+            40
+          ],
+          "output": [
+            1,
+            480,
+            30,
+            40
+          ],
+          "kernel": [
+            1,
+            1
+          ],
+          "groups": 1,
+          "macs": 46080000
+        },
+        {
+          "input": [
+            1,
+            480,
+            30,
+            40
+          ],
+          "output": [
+            1,
+            480,
+            30,
+            40
+          ],
+          "kernel": [
+            3,
+            3
+          ],
+          "groups": 480,
+          "macs": 5184000
+        }
+      ]
+    },
+    {
+      "component": "MobileNet backbone.body.features.14",
+      "calls": 5,
+      "GMAC": 0.0998,
+      "example_tensors": [
+        {
+          "input": [
+            1,
+            160,
+            15,
+            20
+          ],
+          "output": [
+            1,
+            960,
+            15,
+            20
+          ],
+          "kernel": [
+            1,
+            1
+          ],
+          "groups": 1,
+          "macs": 46080000
+        },
+        {
+          "input": [
+            1,
+            960,
+            15,
+            20
+          ],
+          "output": [
+            1,
+            960,
+            15,
+            20
+          ],
+          "kernel": [
+            5,
+            5
+          ],
+          "groups": 960,
+          "macs": 7200000
+        }
+      ]
+    },
+    {
+      "component": "MobileNet backbone.body.features.15",
+      "calls": 5,
+      "GMAC": 0.0998,
+      "example_tensors": [
+        {
+          "input": [
+            1,
+            160,
+            15,
+            20
+          ],
+          "output": [
+            1,
+            960,
+            15,
+            20
+          ],
+          "kernel": [
+            1,
+            1
+          ],
+          "groups": 1,
+          "macs": 46080000
+        },
+        {
+          "input": [
+            1,
+            960,
+            15,
+            20
+          ],
+          "output": [
+            1,
+            960,
+            15,
+            20
+          ],
+          "kernel": [
+            5,
+            5
+          ],
+          "groups": 960,
+          "macs": 7200000
+        }
+      ]
+    },
+    {
+      "component": "MobileNet backbone.body.features.3",
+      "calls": 3,
+      "GMAC": 0.0788,
+      "example_tensors": [
+        {
+          "input": [
+            1,
+            24,
+            120,
+            160
+          ],
+          "output": [
+            1,
+            72,
+            120,
+            160
+          ],
+          "kernel": [
+            1,
+            1
+          ],
+          "groups": 1,
+          "macs": 33177600
+        },
+        {
+          "input": [
+            1,
+            72,
+            120,
+            160
+          ],
+          "output": [
+            1,
+            72,
+            120,
+            160
+          ],
+          "kernel": [
+            3,
+            3
+          ],
+          "groups": 72,
+          "macs": 12441600
+        }
+      ]
+    },
+    {
+      "component": "MobileNet backbone.body.features.7",
+      "calls": 3,
+      "GMAC": 0.0717,
+      "example_tensors": [
+        {
+          "input": [
+            1,
+            40,
+            60,
+            80
+          ],
+          "output": [
+            1,
+            240,
+            60,
+            80
+          ],
+          "kernel": [
+            1,
+            1
+          ],
+          "groups": 1,
+          "macs": 46080000
+        },
+        {
+          "input": [
+            1,
+            240,
+            60,
+            80
+          ],
+          "output": [
+            1,
+            240,
+            30,
+            40
+          ],
+          "kernel": [
+            3,
+            3
+          ],
+          "groups": 240,
+          "macs": 2592000
+        }
+      ]
+    },
+    {
+      "component": "MobileNet backbone.body.features.5",
+      "calls": 5,
+      "GMAC": 0.0605,
+      "example_tensors": [
+        {
+          "input": [
+            1,
+            40,
+            60,
+            80
+          ],
+          "output": [
+            1,
+            120,
+            60,
+            80
+          ],
+          "kernel": [
+            1,
+            1
+          ],
+          "groups": 1,
+          "macs": 23040000
+        },
+        {
+          "input": [
+            1,
+            120,
+            60,
+            80
+          ],
+          "output": [
+            1,
+            120,
+            60,
+            80
+          ],
+          "kernel": [
+            5,
+            5
+          ],
+          "groups": 120,
+          "macs": 14400000
+        }
+      ]
+    },
+    {
+      "component": "MobileNet backbone.body.features.6",
+      "calls": 5,
+      "GMAC": 0.0605,
+      "example_tensors": [
+        {
+          "input": [
+            1,
+            40,
+            60,
+            80
+          ],
+          "output": [
+            1,
+            120,
+            60,
+            80
+          ],
+          "kernel": [
+            1,
+            1
+          ],
+          "groups": 1,
+          "macs": 23040000
+        },
+        {
+          "input": [
+            1,
+            120,
+            60,
+            80
+          ],
+          "output": [
+            1,
+            120,
+            60,
+            80
+          ],
+          "kernel": [
+            5,
+            5
+          ],
+          "groups": 120,
+          "macs": 14400000
+        }
+      ]
+    },
+    {
+      "component": "MobileNet backbone.body.features.4",
+      "calls": 5,
+      "GMAC": 0.0556,
+      "example_tensors": [
+        {
+          "input": [
+            1,
+            24,
+            120,
+            160
+          ],
+          "output": [
+            1,
+            72,
+            120,
+            160
+          ],
+          "kernel": [
+            1,
+            1
+          ],
+          "groups": 1,
+          "macs": 33177600
+        },
+        {
+          "input": [
+            1,
+            72,
+            120,
+            160
+          ],
+          "output": [
+            1,
+            72,
+            60,
+            80
+          ],
+          "kernel": [
+            5,
+            5
+          ],
+          "groups": 72,
+          "macs": 8640000
+        }
+      ]
+    },
+    {
+      "component": "BiFPN repeat 0 top_convs 1",
+      "calls": 2,
+      "GMAC": 0.0484,
+      "example_tensors": [
+        {
+          "input": [
+            1,
+            96,
+            60,
+            80
+          ],
+          "output": [
+            1,
+            96,
+            60,
+            80
+          ],
+          "kernel": [
+            3,
+            3
+          ],
+          "groups": 96,
+          "macs": 4147200
+        },
+        {
+          "input": [
+            1,
+            96,
+            60,
+            80
+          ],
+          "output": [
+            1,
+            96,
+            60,
+            80
+          ],
+          "kernel": [
+            1,
+            1
+          ],
+          "groups": 1,
+          "macs": 44236800
+        }
+      ]
+    },
+    {
+      "component": "BiFPN repeat 1 top_convs 1",
+      "calls": 2,
+      "GMAC": 0.0484,
+      "example_tensors": [
+        {
+          "input": [
+            1,
+            96,
+            60,
+            80
+          ],
+          "output": [
+            1,
+            96,
+            60,
+            80
+          ],
+          "kernel": [
+            3,
+            3
+          ],
+          "groups": 96,
+          "macs": 4147200
+        },
+        {
+          "input": [
+            1,
+            96,
+            60,
+            80
+          ],
+          "output": [
+            1,
+            96,
+            60,
+            80
+          ],
+          "kernel": [
+            1,
+            1
+          ],
+          "groups": 1,
+          "macs": 44236800
+        }
+      ]
+    },
+    {
+      "component": "MobileNet backbone.body.features.16",
+      "calls": 1,
+      "GMAC": 0.0461,
+      "example_tensors": [
+        {
+          "input": [
+            1,
+            160,
+            15,
+            20
+          ],
+          "output": [
+            1,
+            960,
+            15,
+            20
+          ],
+          "kernel": [
+            1,
+            1
+          ],
+          "groups": 1,
+          "macs": 46080000
+        }
+      ]
+    },
+    {
+      "component": "MobileNet backbone.body.features.8",
+      "calls": 3,
+      "GMAC": 0.0406,
+      "example_tensors": [
+        {
+          "input": [
+            1,
+            80,
+            30,
+            40
+          ],
+          "output": [
+            1,
+            200,
+            30,
+            40
+          ],
+          "kernel": [
+            1,
+            1
+          ],
+          "groups": 1,
+          "macs": 19200000
+        },
+        {
+          "input": [
+            1,
+            200,
+            30,
+            40
+          ],
+          "output": [
+            1,
+            200,
+            30,
+            40
+          ],
+          "kernel": [
+            3,
+            3
+          ],
+          "groups": 200,
+          "macs": 2160000
+        }
+      ]
+    },
+    {
+      "component": "MobileNet backbone.body.features.9",
+      "calls": 3,
+      "GMAC": 0.0373,
+      "example_tensors": [
+        {
+          "input": [
+            1,
+            80,
+            30,
+            40
+          ],
+          "output": [
+            1,
+            184,
+            30,
+            40
+          ],
+          "kernel": [
+            1,
+            1
+          ],
+          "groups": 1,
+          "macs": 17664000
+        },
+        {
+          "input": [
+            1,
+            184,
+            30,
+            40
+          ],
+          "output": [
+            1,
+            184,
+            30,
+            40
+          ],
+          "kernel": [
+            3,
+            3
+          ],
+          "groups": 184,
+          "macs": 1987200
+        }
+      ]
+    },
+    {
+      "component": "MobileNet backbone.body.features.10",
+      "calls": 3,
+      "GMAC": 0.0373,
+      "example_tensors": [
+        {
+          "input": [
+            1,
+            80,
+            30,
+            40
+          ],
+          "output": [
+            1,
+            184,
+            30,
+            40
+          ],
+          "kernel": [
+            1,
+            1
+          ],
+          "groups": 1,
+          "macs": 17664000
+        },
+        {
+          "input": [
+            1,
+            184,
+            30,
+            40
+          ],
+          "output": [
+            1,
+            184,
+            30,
+            40
+          ],
+          "kernel": [
+            3,
+            3
+          ],
+          "groups": 184,
+          "macs": 1987200
+        }
+      ]
+    },
+    {
+      "component": "MobileNet backbone.body.features.0",
+      "calls": 1,
+      "GMAC": 0.0332,
+      "example_tensors": [
+        {
+          "input": [
+            1,
+            3,
+            480,
+            640
+          ],
+          "output": [
+            1,
+            16,
+            240,
+            320
+          ],
+          "kernel": [
+            3,
+            3
+          ],
+          "groups": 1,
+          "macs": 33177600
+        }
+      ]
+    },
+    {
+      "component": "MobileNet backbone.body.features.1",
+      "calls": 2,
+      "GMAC": 0.0307,
+      "example_tensors": [
+        {
+          "input": [
+            1,
+            16,
+            240,
+            320
+          ],
+          "output": [
+            1,
+            16,
+            240,
+            320
+          ],
+          "kernel": [
+            3,
+            3
+          ],
+          "groups": 16,
+          "macs": 11059200
+        },
+        {
+          "input": [
+            1,
+            16,
+            240,
+            320
+          ],
+          "output": [
+            1,
+            16,
+            240,
+            320
+          ],
+          "kernel": [
+            1,
+            1
+          ],
+          "groups": 1,
+          "macs": 19660800
+        }
+      ]
+    },
+    {
+      "component": "RoI projection 0",
+      "calls": 1,
+      "GMAC": 0.0295,
+      "example_tensors": [
+        {
+          "input": [
+            1,
+            96,
+            60,
+            80
+          ],
+          "output": [
+            1,
+            64,
+            60,
+            80
+          ],
+          "kernel": [
+            1,
+            1
+          ],
+          "groups": 1,
+          "macs": 29491200
+        }
+      ]
+    },
+    {
+      "component": "BiFPN input projection 2",
+      "calls": 1,
+      "GMAC": 0.0276,
+      "example_tensors": [
+        {
+          "input": [
+            1,
+            960,
+            15,
+            20
+          ],
+          "output": [
+            1,
+            96,
+            15,
+            20
+          ],
+          "kernel": [
+            1,
+            1
+          ],
+          "groups": 1,
+          "macs": 27648000
+        }
+      ]
+    },
+    {
+      "component": "RPN rpn.head.bbox_pred",
+      "calls": 3,
+      "GMAC": 0.0218,
+      "example_tensors": [
+        {
+          "input": [
+            1,
+            96,
+            60,
+            80
+          ],
+          "output": [
+            1,
+            36,
+            60,
+            80
+          ],
+          "kernel": [
+            1,
+            1
+          ],
+          "groups": 1,
+          "macs": 16588800
+        },
+        {
+          "input": [
+            1,
+            96,
+            30,
+            40
+          ],
+          "output": [
+            1,
+            36,
+            30,
+            40
+          ],
+          "kernel": [
+            1,
+            1
+          ],
+          "groups": 1,
+          "macs": 4147200
+        }
+      ]
+    },
+    {
+      "component": "BiFPN input projection 0",
+      "calls": 1,
+      "GMAC": 0.0184,
+      "example_tensors": [
+        {
+          "input": [
+            1,
+            40,
+            60,
+            80
+          ],
+          "output": [
+            1,
+            96,
+            60,
+            80
+          ],
+          "kernel": [
+            1,
+            1
+          ],
+          "groups": 1,
+          "macs": 18432000
+        }
+      ]
+    },
+    {
+      "component": "BiFPN input projection 1",
+      "calls": 1,
+      "GMAC": 0.0129,
+      "example_tensors": [
+        {
+          "input": [
+            1,
+            112,
+            30,
+            40
+          ],
+          "output": [
+            1,
+            96,
+            30,
+            40
+          ],
+          "kernel": [
+            1,
+            1
+          ],
+          "groups": 1,
+          "macs": 12902400
+        }
+      ]
+    },
+    {
+      "component": "BiFPN repeat 0 top_convs 0",
+      "calls": 2,
+      "GMAC": 0.0121,
+      "example_tensors": [
+        {
+          "input": [
+            1,
+            96,
+            30,
+            40
+          ],
+          "output": [
+            1,
+            96,
+            30,
+            40
+          ],
+          "kernel": [
+            3,
+            3
+          ],
+          "groups": 96,
+          "macs": 1036800
+        },
+        {
+          "input": [
+            1,
+            96,
+            30,
+            40
+          ],
+          "output": [
+            1,
+            96,
+            30,
+            40
+          ],
+          "kernel": [
+            1,
+            1
+          ],
+          "groups": 1,
+          "macs": 11059200
+        }
+      ]
+    },
+    {
+      "component": "BiFPN repeat 0 bottom_convs 0",
+      "calls": 2,
+      "GMAC": 0.0121,
+      "example_tensors": [
+        {
+          "input": [
+            1,
+            96,
+            30,
+            40
+          ],
+          "output": [
+            1,
+            96,
+            30,
+            40
+          ],
+          "kernel": [
+            3,
+            3
+          ],
+          "groups": 96,
+          "macs": 1036800
+        },
+        {
+          "input": [
+            1,
+            96,
+            30,
+            40
+          ],
+          "output": [
+            1,
+            96,
+            30,
+            40
+          ],
+          "kernel": [
+            1,
+            1
+          ],
+          "groups": 1,
+          "macs": 11059200
+        }
+      ]
+    },
+    {
+      "component": "BiFPN repeat 1 top_convs 0",
+      "calls": 2,
+      "GMAC": 0.0121,
+      "example_tensors": [
+        {
+          "input": [
+            1,
+            96,
+            30,
+            40
+          ],
+          "output": [
+            1,
+            96,
+            30,
+            40
+          ],
+          "kernel": [
+            3,
+            3
+          ],
+          "groups": 96,
+          "macs": 1036800
+        },
+        {
+          "input": [
+            1,
+            96,
+            30,
+            40
+          ],
+          "output": [
+            1,
+            96,
+            30,
+            40
+          ],
+          "kernel": [
+            1,
+            1
+          ],
+          "groups": 1,
+          "macs": 11059200
+        }
+      ]
+    },
+    {
+      "component": "BiFPN repeat 1 bottom_convs 0",
+      "calls": 2,
+      "GMAC": 0.0121,
+      "example_tensors": [
+        {
+          "input": [
+            1,
+            96,
+            30,
+            40
+          ],
+          "output": [
+            1,
+            96,
+            30,
+            40
+          ],
+          "kernel": [
+            3,
+            3
+          ],
+          "groups": 96,
+          "macs": 1036800
+        },
+        {
+          "input": [
+            1,
+            96,
+            30,
+            40
+          ],
+          "output": [
+            1,
+            96,
+            30,
+            40
+          ],
+          "kernel": [
+            1,
+            1
+          ],
+          "groups": 1,
+          "macs": 11059200
+        }
+      ]
+    },
+    {
+      "component": "RoI projection 1",
+      "calls": 1,
+      "GMAC": 0.0074,
+      "example_tensors": [
+        {
+          "input": [
+            1,
+            96,
+            30,
+            40
+          ],
+          "output": [
+            1,
+            64,
+            30,
+            40
+          ],
+          "kernel": [
+            1,
+            1
+          ],
+          "groups": 1,
+          "macs": 7372800
+        }
+      ]
+    },
+    {
+      "component": "RPN rpn.head.cls_logits",
+      "calls": 3,
+      "GMAC": 0.0054,
+      "example_tensors": [
+        {
+          "input": [
+            1,
+            96,
+            60,
+            80
+          ],
+          "output": [
+            1,
+            9,
+            60,
+            80
+          ],
+          "kernel": [
+            1,
+            1
+          ],
+          "groups": 1,
+          "macs": 4147200
+        },
+        {
+          "input": [
+            1,
+            96,
+            30,
+            40
+          ],
+          "output": [
+            1,
+            9,
+            30,
+            40
+          ],
+          "kernel": [
+            1,
+            1
+          ],
+          "groups": 1,
+          "macs": 1036800
+        }
+      ]
+    },
+    {
+      "component": "BiFPN repeat 0 bottom_convs 1",
+      "calls": 2,
+      "GMAC": 0.003,
+      "example_tensors": [
+        {
+          "input": [
+            1,
+            96,
+            15,
+            20
+          ],
+          "output": [
+            1,
+            96,
+            15,
+            20
+          ],
+          "kernel": [
+            3,
+            3
+          ],
+          "groups": 96,
+          "macs": 259200
+        },
+        {
+          "input": [
+            1,
+            96,
+            15,
+            20
+          ],
+          "output": [
+            1,
+            96,
+            15,
+            20
+          ],
+          "kernel": [
+            1,
+            1
+          ],
+          "groups": 1,
+          "macs": 2764800
+        }
+      ]
+    },
+    {
+      "component": "BiFPN repeat 1 bottom_convs 1",
+      "calls": 2,
+      "GMAC": 0.003,
+      "example_tensors": [
+        {
+          "input": [
+            1,
+            96,
+            15,
+            20
+          ],
+          "output": [
+            1,
+            96,
+            15,
+            20
+          ],
+          "kernel": [
+            3,
+            3
+          ],
+          "groups": 96,
+          "macs": 259200
+        },
+        {
+          "input": [
+            1,
+            96,
+            15,
+            20
+          ],
+          "output": [
+            1,
+            96,
+            15,
+            20
+          ],
+          "kernel": [
+            1,
+            1
+          ],
+          "groups": 1,
+          "macs": 2764800
+        }
+      ]
+    },
+    {
+      "component": "RoI projection 2",
+      "calls": 1,
+      "GMAC": 0.0018,
+      "example_tensors": [
+        {
+          "input": [
+            1,
+            96,
+            15,
+            20
+          ],
+          "output": [
+            1,
+            64,
+            15,
+            20
+          ],
+          "kernel": [
+            1,
+            1
+          ],
+          "groups": 1,
+          "macs": 1843200
+        }
+      ]
+    }
+  ],
+  "linear_layers": {
+    "proposal_count": 300,
+    "counting_method": "N_rows \u00d7 in_features \u00d7 out_features",
+    "layers": [
+      {
+        "layer": "roi_heads.box_head.projection.0",
+        "input_shape": [
+          300,
+          3136
+        ],
+        "output_shape": [
+          300,
+          256
+        ],
+        "MACs": 240844800
+      },
+      {
+        "layer": "roi_heads.box_predictor.cls_score",
+        "input_shape": [
+          300,
+          256
+        ],
+        "output_shape": [
+          300,
+          91
+        ],
+        "MACs": 6988800
+      },
+      {
+        "layer": "roi_heads.box_predictor.bbox_pred",
+        "input_shape": [
+          300,
+          256
+        ],
+        "output_shape": [
+          300,
+          364
+        ],
+        "MACs": 27955200
+      }
+    ],
+    "total_MACs": 275788800,
+    "total_GMAC": 0.2758
+  }
+}

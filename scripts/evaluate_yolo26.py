@@ -67,6 +67,8 @@ def main():
     dataset_yaml = output.parent / "coco_val.yaml"
     dataset_yaml.write_text(yaml.safe_dump({
         "path": str(coco_root),
+        # Ultralytics requires both keys even when this script only calls model.val().
+        "train": str(image_list.resolve()),
         "val": str(image_list.resolve()),
         "names": names,
     }, sort_keys=False), encoding="utf-8")

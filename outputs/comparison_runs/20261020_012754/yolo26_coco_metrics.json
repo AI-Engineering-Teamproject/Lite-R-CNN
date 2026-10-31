@@ -1,0 +1,14 @@
+{
+  "model": "yolo26",
+  "model_name": "YOLO26",
+  "weights": "yolo26n.pt",
+  "data": "outputs/comparison_runs/20261020_012754/coco_val.yaml",
+  "image_size": 640,
+  "batch_size": 1,
+  "images_evaluated": 5000,
+  "accuracy": {
+    "AP_50_95": 0.39989719228085135,
+    "AP_50": 0.5530269292784904,
+    "AP_75": 0.4358416562280826
+  }
+}
