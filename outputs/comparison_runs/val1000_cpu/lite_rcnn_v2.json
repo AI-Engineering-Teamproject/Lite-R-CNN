@@ -1,0 +1,22 @@
+{
+  "model": "light_rcnn",
+  "weights": "outputs\\coco_4090_v2\\best.pth",
+  "image_size": 640,
+  "images_evaluated": 1000,
+  "evaluation_batch_size": 1,
+  "detections": 23021,
+  "images_with_detections": 995,
+  "max_detection_score": 0.9999229907989502,
+  "mean_best_iou_any_class": 0.8842199174240232,
+  "mean_best_iou_same_class": 0.871645089328289,
+  "images_with_iou50_any_class": 979,
+  "images_with_iou50_same_class": 969,
+  "evaluation_scope": "subset",
+  "evaluation_subset_seed": 42,
+  "AP_50_95": 0.2902104797034755,
+  "AP_50": 0.47681600694575904,
+  "AP_75": 0.2994019596159674,
+  "AP_small": 0.10845819123735158,
+  "AP_medium": 0.3230301647112139,
+  "AP_large": 0.49073724694257437
+}
