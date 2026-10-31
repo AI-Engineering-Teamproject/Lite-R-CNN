@@ -346,8 +346,8 @@ def write_reports(results: list[dict], out_dir: Path, metadata: dict) -> None:
              "| Model | AP/mAP | AP50 | AP75 | AP_S | AP_M | AP_L | Precision | Recall | p50 ms | FPS | Params M | FLOPs G* |",
              "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|"]
     for row in results:
-        lines.append("| {model} | {AP:.4f} | {AP50:.4f} | {AP75:.4f} | {AP_S:.4f} | {AP_M:.4f} | {AP_L:.4f} | {Precision_IoU50_score0.5:.4f} | {Recall_IoU50_score0.5:.4f} | {latency_p50_ms:.2f} | {fps:.2f} | {parameters_M:.3f} | {flops} |".format(
-            **row, flops=(f"{row['FLOPs_G_supported_ops']:.3f}" if row["FLOPs_G_supported_ops"] is not None else "N/A")))
+        lines.append("| {model} | {AP:.4f} | {AP50:.4f} | {AP75:.4f} | {AP_S:.4f} | {AP_M:.4f} | {AP_L:.4f} | {precision:.4f} | {recall:.4f} | {latency_p50_ms:.2f} | {fps:.2f} | {parameters_M:.3f} | {flops} |".format(
+            **row, precision=row["Precision_IoU50_score0.5"], recall=row["Recall_IoU50_score0.5"], flops=(f"{row['FLOPs_G_supported_ops']:.3f}" if row["FLOPs_G_supported_ops"] is not None else "N/A")))
     lines.extend(["", "* FLOPs sums operators counted by PyTorch profiler; ROIAlign, NMS and other unsupported ops can be omitted.",
                   "Precision/Recall use score >= 0.5 and class-aware IoU >= 0.5. AP is COCO AP@[.50:.95] and equals mAP_50_95.",
                   "Faster R-CNN has no BiFPN module; its BiFPN latency is null. VRAM is peak allocated CUDA memory.",
