@@ -1,0 +1,27 @@
+# Independent comparison. Paths are relative to the repository root.
+device: cuda:0
+image_size: 640
+geometry: square # same 640x640 canvas; native preserves each framework's resize behavior
+mode: full # full, accuracy, latency
+seed: 42
+cpu_threads: 4
+data:
+  images: data/coco/images/val2017
+  annotations: data/coco/annotations/instances_val2017.json
+evaluation_limit: 0 # 0 = full val2017; subsets use ONE shared seeded image-ID list
+benchmark:
+  image_count: 64
+  warmup: 50
+  iterations: 500
+score_threshold: 0.001
+nms_threshold: 0.5 # only used by NMS-based models; YOLO26 may use its NMS-free head
+max_detections: 100 # official COCO maxDets=100
+models:
+  lite_rcnn:
+    weights: outputs/coco_4090_v2/best.pth
+  faster_rcnn:
+    weights: COCO_V1
+  mobilenet_faster_rcnn:
+    weights: COCO_V1
+  yolo26:
+    weights: yolo26n.pt # prepare the official local weight file first
