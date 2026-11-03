@@ -1,0 +1,13 @@
+# Streamlit Community Cloud installs this file (it sits next to app.py), not the whole project.
+# The CPU-only PyTorch index keeps the install small enough for the free server; the detection
+# race page (pages/1_Detection_Race.py) needs torch, torchvision, ultralytics and segno, while the
+# results dashboard itself only needs streamlit, plotly, pandas and PyYAML.
+--extra-index-url https://download.pytorch.org/whl/cpu
+streamlit>=1.56
+plotly>=5.24
+pandas>=2.2
+PyYAML>=6.0
+torch>=2.2
+torchvision>=0.17
+ultralytics>=8.4
+segno>=1.6

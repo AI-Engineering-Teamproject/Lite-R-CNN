@@ -1,0 +1,102 @@
+# Ablation A1 + EMA: configs/coco_v3_1a.yaml plus an exponential moving average of the weights.
+# Compare its best AP with A1 (abl12_v3_1a_anchors); every other key is identical.
+# With train.ema enabled, validation and best.pth use the EMA weights: checkpoint "model" holds
+# them (what evaluate_coco.py / benchmark.py load), "train_model" the optimizer's own weights for
+# --resume, and history.jsonl records validated_weights: ema.
+seed: 42
+device: cuda
+num_classes: 91 # background plus original COCO category-id space
+image_size: 640
+data:
+  train_images: data/coco/images/train2017
+  train_annotations: data/coco/annotations/instances_train2017.json
+  val_images: data/coco/images/val2017
+  val_annotations: data/coco/annotations/instances_val2017.json
+model:
+  architecture: light_rcnn_v3
+  backbone: mobilenet_v3_large
+  pretrained: true
+  neck: lite_fpn_c2_c5
+  fpn_channels: 64
+  roi_channels: 32
+  roi_size: 7
+  roi_head_dim: 256
+  roi_head_pool_size: 7
+  # v3.1: 3 sizes/level = 9 anchors/location (RPNHead needs the same count on every level).
+  # sqrt(2)-spaced sizes; P3-P7 use 4x/5.66x/8x stride, P2 keeps small anchors for tiny objects.
+  # P2-P5 feed RoIAlign, P6-P7 are RPN-only.
+  rpn_anchor_sizes: [[11, 16, 23], [32, 45, 64], [64, 91, 128], [128, 181, 256], [256, 362, 512], [512, 724, 1024]]
+  # Fixed anchor strides (needs the v3.py patch): stops P6/P7 anchors drifting 28-48 px from their
+  # features on non-square inputs (torchvision derives stride = padded_size // grid_size).
+  rpn_anchor_strides: [4, 8, 16, 32, 64, 128]
+  rpn_pre_nms_topk_test: 1000
+  rpn_post_nms_topk_test: 300
+  box_score_thresh: 0.05
+  box_nms_thresh: 0.5
+  box_detections_per_img: 100
+train:
+  epochs: 12 # short ablation schedule
+  batch_size: 4
+  workers: 8
+  learning_rate: 0.0001
+  weight_decay: 0.0001
+  amp: true
+  output_dir: outputs/abl12_v3_1a_ema
+  validate_every: 1
+  val_batch_size: 4
+  warmup_steps: 1000
+  lr_milestones: [8, 11]
+  lr_gamma: 0.1
+  max_grad_norm: 10.0
+  box_batch_size_per_image: 512
+  train_limit: 0
+  val_limit: 0
+  horizontal_flip_prob: 0.5
+  subset_selection: seeded_random
+  # EMA of parameters and BatchNorm buffers, updated after every optimizer step.
+  # Effective decay = decay * (1 - exp(-step / warmup)); horizon 1 / (1 - decay) = 5,000 steps,
+  # about 0.17 epoch at batch 4 (29.6k steps/epoch). Cannot be switched on or off on --resume.
+  ema:
+    enabled: true
+    decay: 0.9998
+    warmup: 2000
+  # Opt-in multi-scale training (separate ablation; off here). Each training image draws its
+  # short side from min_sizes and the long side stays <= max_size; validation stays at 640.
+  # max_size must equal image_size and min_sizes must include it. A 4:3 COCO image is already
+  # 640x480 at short side 480, so sizes >= 480 only change near-square images: this list keeps
+  # ~68% of draws at full size (mean long side ~0.96 x 640).
+  # multiscale:
+  #   enabled: true
+  #   min_sizes: [384, 416, 448, 480, 512, 544, 576, 608, 640]
+  #   max_size: 640
+distillation:
+  enabled: true
+  teacher:
+    family: faster_rcnn
+    architecture: fasterrcnn_resnet50_fpn
+    checkpoint: torchvision_coco_v1
+  feature_weight: 0.5
+  roi_kl_weight: 1.0
+  temperature: 2.0
+  # Opt-in KD fixes (separate ablations; the legacy defaults below are what A1 uses):
+  # feature_loss: legacy = Smooth L1 of unit-norm channel vectors, (1 - cos) / 256 ~ 1e-3, i.e.
+  #   loss_kd_feature ~4e-4 in the v3 run (negligible). standardized = per-channel z-scored maps,
+  #   MSE / 2 = mean(1 - Pearson r): ~1 at the start, 0 when aligned, so feature_weight 0.5 starts
+  #   near 0.5, the order of loss_kd_roi (0.2-0.55 in the v3 run).
+  # box_weight: teacher RoI box-delta distillation on the same sampled RoIs (teacher's top class,
+  #   weighted by its probability). Normalised like loss_box_reg, so 1.0 matches its scale.
+  # feature_loss: standardized
+  # box_weight: 1.0
+comparison:
+  light_rcnn_v2:
+    checkpoint: outputs/coco_4090_v2/best.pth
+    architecture: mobile_bifpn_fasterrcnn
+    image_size: 640
+    batch_size: 1
+  validation:
+    split: COCO val2017
+    images: 5000
+    metric: bbox AP@[.50:.95]
+export:
+  opset: 17
+  format: fp16

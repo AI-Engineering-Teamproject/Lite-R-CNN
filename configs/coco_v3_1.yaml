@@ -1,0 +1,73 @@
+# Lite R-CNN v3.1 full 48-epoch run (= A1; add roi_channels: 64 only if A2 beats A1).
+seed: 42
+device: cuda
+num_classes: 91 # background plus original COCO category-id space
+image_size: 640
+data:
+  train_images: data/coco/images/train2017
+  train_annotations: data/coco/annotations/instances_train2017.json
+  val_images: data/coco/images/val2017
+  val_annotations: data/coco/annotations/instances_val2017.json
+model:
+  architecture: light_rcnn_v3
+  backbone: mobilenet_v3_large
+  pretrained: true
+  neck: lite_fpn_c2_c5
+  fpn_channels: 64
+  roi_channels: 32
+  roi_size: 7
+  roi_head_dim: 256
+  roi_head_pool_size: 7
+  # v3.1: 3 sizes/level = 9 anchors/location (RPNHead needs the same count on every level).
+  # sqrt(2)-spaced sizes; P3-P7 use 4x/5.66x/8x stride, P2 keeps small anchors for tiny objects.
+  # P2-P5 feed RoIAlign, P6-P7 are RPN-only.
+  rpn_anchor_sizes: [[11, 16, 23], [32, 45, 64], [64, 91, 128], [128, 181, 256], [256, 362, 512], [512, 724, 1024]]
+  # Fixed anchor strides (needs the v3.py patch): stops P6/P7 anchors drifting 28-48 px from their
+  # features on non-square inputs (torchvision derives stride = padded_size // grid_size).
+  rpn_anchor_strides: [4, 8, 16, 32, 64, 128]
+  rpn_pre_nms_topk_test: 1000
+  rpn_post_nms_topk_test: 300
+  box_score_thresh: 0.05
+  box_nms_thresh: 0.5
+  box_detections_per_img: 100
+train:
+  epochs: 48
+  batch_size: 4
+  workers: 8
+  learning_rate: 0.0001
+  weight_decay: 0.0001
+  amp: true
+  output_dir: outputs/coco_4090_v3_1
+  validate_every: 1
+  val_batch_size: 4
+  warmup_steps: 1000
+  lr_milestones: [32, 42]
+  lr_gamma: 0.1
+  max_grad_norm: 10.0
+  box_batch_size_per_image: 512
+  train_limit: 0
+  val_limit: 0
+  horizontal_flip_prob: 0.5
+  subset_selection: seeded_random
+distillation:
+  enabled: true
+  teacher:
+    family: faster_rcnn
+    architecture: fasterrcnn_resnet50_fpn
+    checkpoint: torchvision_coco_v1
+  feature_weight: 0.5
+  roi_kl_weight: 1.0
+  temperature: 2.0
+comparison:
+  light_rcnn_v2:
+    checkpoint: outputs/coco_4090_v2/best.pth
+    architecture: mobile_bifpn_fasterrcnn
+    image_size: 640
+    batch_size: 1
+  validation:
+    split: COCO val2017
+    images: 5000
+    metric: bbox AP@[.50:.95]
+export:
+  opset: 17
+  format: fp16

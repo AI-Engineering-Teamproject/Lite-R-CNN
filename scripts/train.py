@@ -1,4 +1,10 @@
-"""Train, validate, resume and optionally distill a Light R-CNN detector."""
+"""Train, validate, resume and optionally distill a Light R-CNN detector.
+
+Opt-in training options (absent or ``enabled: false`` keeps the original behaviour):
+``train.ema`` validates and saves an exponential moving average of the weights,
+``train.multiscale`` draws a random short side per training image, and
+``distillation.feature_loss`` / ``distillation.box_weight`` select the KD losses.
+"""
 
 import argparse
 import json
@@ -14,14 +20,117 @@ from pathlib import Path
 import numpy as np
 import torch
 import yaml
+from torch.optim.swa_utils import AveragedModel
 from torch.utils.data import DataLoader, Subset
 from tqdm import tqdm
 
-from light_rcnn.data import CocoTensorDataset, detection_collate
+from light_rcnn.data import (
+    CocoTensorDataset,
+    detection_collate,
+    enable_multiscale,
+    multiscale_min_sizes,
+)
 from light_rcnn.distillation import DistillationTrainer, build_teacher
 from light_rcnn.evaluation import evaluate_coco
 from light_rcnn.model.detector import light_rcnn_from_config
 from light_rcnn.utils import seed_everything
+
+try:
+    from torch.optim.swa_utils import get_ema_multi_avg_fn
+except ImportError:  # torch < 2.1: per-tensor avg_fn fallback
+    get_ema_multi_avg_fn = None
+
+
+class ModelEMA:
+    """Exponential moving average of a detector's parameters and buffers (BatchNorm statistics).
+
+    The decay ramps as ``decay * (1 - exp(-updates / warmup))`` so the average soon forgets the
+    randomly initialised heads; ``warmup=0`` keeps it constant. The first update copies the
+    weights. ``1 / (1 - decay)`` optimizer steps is the averaging horizon (0.9998: 5,000 steps,
+    about 0.17 epoch of COCO train2017 at batch 4).
+    """
+
+    def __init__(self, model, decay=0.9998, warmup=2000):
+        self.decay, self.warmup = decay, warmup
+        if get_ema_multi_avg_fn is None:
+            self.averaged = AveragedModel(model, avg_fn=self._average, use_buffers=True)
+        else:
+            self.averaged = AveragedModel(
+                model, multi_avg_fn=self._multi_average, use_buffers=True
+            )
+        # n_averaged stays on the CPU (no device argument), so reading it never syncs the GPU.
+        self.module = self.averaged.module.requires_grad_(False)
+
+    @property
+    def updates(self):
+        return int(self.averaged.n_averaged)
+
+    def current_decay(self):
+        if not self.warmup:
+            return self.decay
+        return self.decay * (1.0 - math.exp(-self.updates / self.warmup))
+
+    def _multi_average(self, averaged, current, num_averaged):
+        get_ema_multi_avg_fn(self.current_decay())(averaged, current, num_averaged)
+
+    def _average(self, averaged, current, num_averaged):
+        decay = self.current_decay()
+        return averaged * decay + current * (1.0 - decay)
+
+    def update(self, model):
+        self.averaged.update_parameters(model)
+
+    def state_dict(self):
+        """Counters only; the averaged weights are the checkpoint's ``model`` entry."""
+        return {"decay": self.decay, "warmup": self.warmup, "updates": self.updates}
+
+    def load_state_dict(self, weights, state):
+        self.module.load_state_dict(weights)
+        self.averaged.n_averaged.fill_(int(state["updates"]))
+
+
+def ema_settings(train):
+    """``train.ema`` as {decay, warmup}; None when off (absent or enabled: false)."""
+    ema = train.get("ema") or {}
+    if ema is True:  # `ema: true` shorthand for the defaults
+        ema = {"enabled": True}
+    if not ema.get("enabled", False):
+        return None
+    settings = {"decay": float(ema.get("decay", 0.9998)), "warmup": int(ema.get("warmup", 2000))}
+    if not 0.0 < settings["decay"] < 1.0 or settings["warmup"] < 0:
+        raise ValueError("train.ema needs 0 < decay < 1 and warmup >= 0")
+    return settings
+
+
+def multiscale_settings(train, image_size):
+    """``train.multiscale`` as validated {min_sizes, max_size}; None when off."""
+    multiscale = train.get("multiscale") or {}
+    if not multiscale.get("enabled", False):
+        return None
+    max_size = int(multiscale.get("max_size", image_size))
+    sizes = multiscale_min_sizes(multiscale.get("min_sizes", ()), max_size, image_size)
+    return {"min_sizes": list(sizes), "max_size": max_size}
+
+
+def training_options(config):
+    """Korean summary of the opt-in options in use, for RESULTS.md (empty for defaults)."""
+    train, kd = config["train"], config.get("distillation") or {}
+    options = []
+    if ema := ema_settings(train):
+        options.append(
+            f"EMA 가중치로 검증·best.pth 저장 (decay {ema['decay']}, warmup {ema['warmup']} step)"
+        )
+    if multiscale := multiscale_settings(train, config["image_size"]):
+        sizes = ", ".join(map(str, multiscale["min_sizes"]))
+        options.append(
+            f"다중 스케일 학습 (짧은 변 {sizes} 중 무작위, 긴 변 최대 {multiscale['max_size']}px; "
+            f"검증은 {config['image_size']}px 고정)"
+        )
+    if kd.get("enabled", False) and kd.get("feature_loss", "legacy") != "legacy":
+        options.append(f"KD feature loss `{kd['feature_loss']}` × {kd.get('feature_weight', 1.0)}")
+    if kd.get("enabled", False) and kd.get("box_weight", 0.0):
+        options.append(f"KD box loss × {kd['box_weight']}")
+    return options
 
 
 def rng_state():
@@ -106,30 +215,36 @@ def write_results_report(output_dir, config, history_path, device, train_images,
     lines = [
         f"# Lite R-CNN 결과 — {output_dir.name}",
         "",
-        f"- 상태: **{'완료' if completed else '진행 중'}** "
-        f"({last_row['epoch']}/{config['train']['epochs']} epoch)",
+        (
+            f"- 상태: **{'완료' if completed else '진행 중'}** "
+            f"({last_row['epoch']}/{config['train']['epochs']} epoch)"
+        ),
         f"- 갱신 시각: {datetime.now().astimezone().isoformat(timespec='seconds')}",
         f"- 코드 revision: `{git_revision}` (worktree {worktree_state})",
         f"- 장치: `{device}` ({device_name}); PyTorch `{torch.__version__}`, CUDA runtime `{cuda_runtime}`",
         f"- 모델: `{config['model'].get('architecture', 'light_rcnn')}`, 입력 최대 변 {config['image_size']}px",
-        f"- 데이터: train {train_images:,}장, val {val_images:,}장; "
-        f"batch {config['train']['batch_size']}, "
-        f"val batch {config['train'].get('val_batch_size', 1)}, "
-        f"AMP {config['train'].get('amp', False)}",
+        (
+            f"- 데이터: train {train_images:,}장, val {val_images:,}장; "
+            f"batch {config['train']['batch_size']}, "
+            f"val batch {config['train'].get('val_batch_size', 1)}, "
+            f"AMP {config['train'].get('amp', False)}"
+        ),
         f"- Seed: {config['seed']}; validation 범위: {validation_scope}",
-        "",
-        "## 요약",
-        "",
     ]
+    if options := training_options(config):
+        lines.append(f"- 학습 옵션: {'; '.join(options)}")
+    lines.extend(["", "## 요약", ""])
     if best_row:
         best_metrics = best_row["validation"]
         lines.extend(
             [
                 f"- 최고 AP@[.50:.95]: **{percent(best_metrics, 'AP_50_95')}** (epoch {best_row['epoch']})",
-                f"- 최고 epoch 지표: AP50 {percent(best_metrics, 'AP_50')}, "
-                f"AP75 {percent(best_metrics, 'AP_75')}, "
-                f"AP-small/medium/large {percent(best_metrics, 'AP_small')} / "
-                f"{percent(best_metrics, 'AP_medium')} / {percent(best_metrics, 'AP_large')}",
+                (
+                    f"- 최고 epoch 지표: AP50 {percent(best_metrics, 'AP_50')}, "
+                    f"AP75 {percent(best_metrics, 'AP_75')}, "
+                    f"AP-small/medium/large {percent(best_metrics, 'AP_small')} / "
+                    f"{percent(best_metrics, 'AP_medium')} / {percent(best_metrics, 'AP_large')}"
+                ),
             ]
         )
     if last_metrics:
@@ -171,12 +286,16 @@ def write_results_report(output_dir, config, history_path, device, train_images,
             "",
             "## 다른 컴퓨터에서 이어가기",
             "",
-            "이 run 폴더의 `config.yaml`, `history.jsonl`, `last.pth`, `best.pth`, `RESULTS.md`를 함께 보관하십시오. "
-            "전체 COCO 이미지와 annotation은 별도 준비가 필요합니다. 총 epoch 수를 늘려 재개할 때는 저장된 설정을 그대로 사용하고 "
-            "`python scripts/train.py --resume outputs/<run>/last.pth --epochs <총목표epoch>`를 실행합니다.",
+            (
+                "이 run 폴더의 `config.yaml`, `history.jsonl`, `last.pth`, `best.pth`, `RESULTS.md`를 함께 보관하십시오. "
+                "전체 COCO 이미지와 annotation은 별도 준비가 필요합니다. 총 epoch 수를 늘려 재개할 때는 저장된 설정을 그대로 사용하고 "
+                "`python scripts/train.py --resume outputs/<run>/last.pth --epochs <총목표epoch>`를 실행합니다."
+            ),
             "",
-            "`best.pth`는 최고 validation AP 모델이며 `last.pth`는 마지막 완료 epoch의 optimizer/scheduler 상태를 포함한 재개 파일입니다. "
-            "상세 재현 설정은 [config.yaml](config.yaml), 원시 epoch 기록은 [history.jsonl](history.jsonl)입니다.",
+            (
+                "`best.pth`는 최고 validation AP 모델이며 `last.pth`는 마지막 완료 epoch의 optimizer/scheduler 상태를 포함한 재개 파일입니다. "
+                "상세 재현 설정은 [config.yaml](config.yaml), 원시 epoch 기록은 [history.jsonl](history.jsonl)입니다."
+            ),
             "",
         ]
     )
@@ -235,7 +354,9 @@ def main():
     if args.init_backbone and (args.resume or args.init_weights):
         parser.error("--init-backbone cannot be combined with --resume or --init-weights")
     saved = torch.load(args.resume, map_location="cpu", weights_only=True) if args.resume else None
-    if saved and saved.get("format_version") != 1:
+    # format 2: the run needs this train.py (EMA, multiscale, KD fixes or fixed anchor strides).
+    # Only EMA runs add "train_model", the optimizer's own weights; "model" holds the EMA weights.
+    if saved and saved.get("format_version") not in (1, 2):
         raise ValueError("Legacy checkpoint: use --init-weights for a new run instead of --resume")
     if args.config or not saved:
         with open(args.config or "configs/coco.yaml", encoding="utf-8") as file:
@@ -286,6 +407,8 @@ def main():
         or not 0.0 <= train["horizontal_flip_prob"] <= 1.0
     ):
         raise ValueError("Invalid epoch, batch, worker, validation or subset settings")
+    ema = ema_settings(train)
+    multiscale = multiscale_settings(train, config["image_size"])
     if saved:
         for key in ("model", "num_classes", "image_size", "distillation", "data", "seed"):
             if config.get(key) != saved["config"].get(key):
@@ -308,6 +431,11 @@ def main():
         ):
             if train.get(key) != saved["config"]["train"].get(key):
                 raise ValueError(f"Cannot change train.{key} on resume")
+        saved_train = saved["config"]["train"]
+        if ema != ema_settings(saved_train):
+            raise ValueError("Cannot change train.ema on resume")
+        if multiscale != multiscale_settings(saved_train, saved["config"]["image_size"]):
+            raise ValueError("Cannot change train.multiscale on resume")
         if (train["train_limit"] or train["val_limit"]) and (
             saved["config"]["train"].get("subset_selection") != train["subset_selection"]
         ):
@@ -397,7 +525,14 @@ def main():
                     target.pop("pretrained", None)
                 if source != target:
                     raise ValueError(f"Initial checkpoint has incompatible {key}")
-        student.load_state_dict(initial.get("model", initial))
+        # Resume continues the optimizer's own weights; new runs start from the saved winner.
+        student.load_state_dict(
+            saved["train_model"]
+            if saved and "train_model" in saved
+            else initial.get("model", initial)
+        )
+    if multiscale:
+        enable_multiscale(student.transform, multiscale["min_sizes"], multiscale["max_size"])
     kd = config.get("distillation", {})
     trainer = student
     if kd.get("enabled", False):
@@ -407,8 +542,11 @@ def main():
             kd.get("feature_weight", 1.0),
             kd.get("roi_kl_weight", 1.0),
             kd.get("temperature", 2.0),
+            feature_loss=kd.get("feature_loss", "legacy"),
+            box_weight=kd.get("box_weight", 0.0),
         )
     trainer.to(device)
+    averaged = ModelEMA(student, **ema) if ema else None
     parameters = [parameter for parameter in trainer.parameters() if parameter.requires_grad]
     optimizer = torch.optim.AdamW(
         parameters, lr=train["learning_rate"], weight_decay=train["weight_decay"]
@@ -432,6 +570,10 @@ def main():
         scaler.load_state_dict(saved["scaler"])
         if kd.get("enabled", False):
             trainer.adapters.load_state_dict(saved["distillation_adapters"])
+        if averaged:
+            if "ema" not in saved:
+                raise ValueError("Checkpoint has no EMA state to resume")
+            averaged.load_state_dict(saved["model"], saved["ema"])
         start_epoch, global_step = saved["epoch"], saved["global_step"]
         best_ap, best_epoch = saved["best_ap"], saved["best_epoch"]
         restore_rng(saved["rng_state"])
@@ -458,7 +600,12 @@ def main():
     )
     print(
         f"Training {len(dataset)} images on {device}; validation limit={train['val_limit']}; "
-        f"distillation={kd.get('enabled', False)}; epoch {start_epoch + 1}/{train['epochs']}"
+        f"distillation={kd.get('enabled', False)}; ema={bool(ema)}; "
+        f"multiscale={bool(multiscale)}; epoch {start_epoch + 1}/{train['epochs']}"
+    )
+    # An older train.py resumes only format 1, so bump it whenever it would drop an option.
+    format_version = (
+        2 if training_options(config) or config["model"].get("rpn_anchor_strides") else 1
     )
     for epoch in range(start_epoch, train["epochs"]):
         trainer.train()
@@ -488,6 +635,8 @@ def main():
             scaler.step(optimizer)
             scaler.update()
             scheduler.step()
+            if averaged:
+                averaged.update(student)
             global_step += 1
             steps += 1
             for key, value in losses.items():
@@ -498,9 +647,10 @@ def main():
             raise FloatingPointError("No optimizer updates completed this epoch")
         metrics = None
         improved = False
+        validated = averaged.module if averaged else student
         if (epoch + 1) % train["validate_every"] == 0 or epoch + 1 == train["epochs"]:
             metrics = evaluate_coco(
-                student,
+                validated,
                 validation,
                 device,
                 train["val_limit"],
@@ -514,8 +664,9 @@ def main():
             if improved:
                 best_ap, best_epoch = ap, epoch + 1
         checkpoint = {
-            "format_version": 1,
-            "model": student.state_dict(),
+            "format_version": format_version,
+            "model": validated.state_dict(),
+            "model_weights": "ema" if averaged else "raw",
             "optimizer": optimizer.state_dict(),
             "scheduler": scheduler.state_dict(),
             "scaler": scaler.state_dict(),
@@ -529,6 +680,9 @@ def main():
         }
         if kd.get("enabled", False):
             checkpoint["distillation_adapters"] = trainer.adapters.state_dict()
+        if averaged:
+            checkpoint["train_model"] = student.state_dict()
+            checkpoint["ema"] = averaged.state_dict()
         atomic_save(checkpoint, output_dir / "last.pth")
         if improved:
             atomic_save(checkpoint, output_dir / "best.pth")
@@ -538,6 +692,7 @@ def main():
             "losses": {key: value / steps for key, value in totals.items()},
             "learning_rate": optimizer.param_groups[0]["lr"],
             "validation": metrics,
+            "validated_weights": "ema" if averaged else "raw",
             "best_ap": best_ap if math.isfinite(best_ap) else None,
             "best_epoch": best_epoch,
         }
@@ -546,7 +701,8 @@ def main():
         write_results_report(output_dir, config, history, device, len(dataset), len(validation))
         print(json.dumps(record, allow_nan=False))
     print(
-        f"Finished. Best validation AP={best_ap:.6f} at epoch {best_epoch}; {output_dir / 'best.pth'}"
+        f"Finished. Best validation AP={best_ap:.6f} at epoch {best_epoch}"
+        f"{' (EMA weights)' if averaged else ''}; {output_dir / 'best.pth'}"
     )
 
 

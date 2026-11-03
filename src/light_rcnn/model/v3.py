@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from collections import OrderedDict
 
+import torch
 from torch import Tensor, nn
 from torchvision.models import MobileNet_V3_Large_Weights, mobilenet_v3_large
 from torchvision.models.detection import FasterRCNN
 from torchvision.models.detection.anchor_utils import AnchorGenerator
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
+from torchvision.models.detection.image_list import ImageList
 from torchvision.models.detection.rpn import RPNHead
 from torchvision.ops import MultiScaleRoIAlign
 
@@ -81,6 +83,36 @@ class MobileFPNBackboneV3(nn.Module):
         return OrderedDict(zip(self.feature_names, (p2, p3, p4, p5, p6, p7)))
 
 
+class FixedStrideAnchorGenerator(AnchorGenerator):
+    """AnchorGenerator with fixed per-level strides.
+
+    torchvision derives each stride as ``padded_size // grid_size``. P6/P7 are stride-2 subsamples
+    of P5, so for a 640x480 input their grids are 8x10 / 4x5 and the derived y-strides become 60/120
+    (448 rows: 64/112) while the features sit on a 64/128 grid -> anchors drift up to 28-48 px away
+    from the feature they belong to. Fixed strides keep anchors and features aligned for every
+    padding (identical anchors on a 640x640 canvas).
+    """
+
+    def __init__(self, sizes, aspect_ratios, strides):
+        super().__init__(sizes, aspect_ratios)
+        if len(strides) != len(sizes):
+            raise ValueError("One stride per anchor level is required")
+        self.fixed_strides = tuple(int(stride) for stride in strides)
+
+    def forward(self, image_list: ImageList, feature_maps: list[Tensor]) -> list[Tensor]:
+        grid_sizes = [feature_map.shape[-2:] for feature_map in feature_maps]
+        dtype, device = feature_maps[0].dtype, feature_maps[0].device
+        # Filled on the device like the stock generator: torch.tensor(..., device=cuda) is a
+        # blocking host-to-device copy (one stream sync per level and forward).
+        strides = [
+            [torch.empty((), dtype=torch.int64, device=device).fill_(stride)] * 2
+            for stride in self.fixed_strides
+        ]
+        self.set_cell_anchors(dtype, device)
+        per_level = self.grid_anchors(grid_sizes, strides)
+        return [torch.cat(per_level) for _ in image_list.image_sizes]
+
+
 class LightRCNNV3(FasterRCNN):
     """Four-scale RoI FPN and six-level RPN Faster R-CNN with a compact head."""
 
@@ -96,6 +128,7 @@ class LightRCNNV3(FasterRCNN):
         rpn_anchor_sizes: tuple[tuple[int, ...], ...] = (
             (8,), (16,), (32,), (64,), (128,), (256,)
         ),
+        rpn_anchor_strides: tuple[int, ...] | None = None,
         rpn_pre_nms_topk_test: int = 1000,
         rpn_post_nms_topk_test: int = 300,
         min_size: int = 640,
@@ -107,10 +140,16 @@ class LightRCNNV3(FasterRCNN):
     ):
         if len(rpn_anchor_sizes) != 6:
             raise ValueError("Lite R-CNN v3 needs one anchor-size group for each RPN level P2-P7")
+        if len({len(level) for level in rpn_anchor_sizes}) != 1:
+            raise ValueError(
+                "RPNHead shares one conv over all levels: use the same anchor count per level"
+            )
         backbone = MobileFPNBackboneV3(fpn_channels, pretrained=pretrained_backbone)
-        anchors = AnchorGenerator(
-            sizes=rpn_anchor_sizes,
-            aspect_ratios=((0.5, 1.0, 2.0),) * len(rpn_anchor_sizes),
+        aspect_ratios = ((0.5, 1.0, 2.0),) * len(rpn_anchor_sizes)
+        anchors = (
+            FixedStrideAnchorGenerator(rpn_anchor_sizes, aspect_ratios, rpn_anchor_strides)
+            if rpn_anchor_strides is not None
+            else AnchorGenerator(sizes=rpn_anchor_sizes, aspect_ratios=aspect_ratios)
         )
         roi_pool = MultiScaleRoIAlign(
             list(backbone.roi_feature_names), output_size=roi_size, sampling_ratio=2
@@ -147,6 +186,8 @@ def light_rcnn_v3_from_config(config: dict, *, pretrained: bool = False) -> Ligh
     model = config["model"]
     train = config.get("train", {})
     anchor_sizes = tuple(tuple(int(size) for size in level) for level in model["rpn_anchor_sizes"])
+    # Absent in v3 checkpoints/configs -> stock AnchorGenerator, so old weights behave as trained.
+    anchor_strides = model.get("rpn_anchor_strides")
     return LightRCNNV3(
         num_classes=config["num_classes"],
         pretrained_backbone=pretrained,
@@ -156,6 +197,7 @@ def light_rcnn_v3_from_config(config: dict, *, pretrained: bool = False) -> Ligh
         roi_head_dim=model.get("roi_head_dim", 256),
         roi_head_pool_size=model.get("roi_head_pool_size", 7),
         rpn_anchor_sizes=anchor_sizes,
+        rpn_anchor_strides=tuple(anchor_strides) if anchor_strides is not None else None,
         rpn_pre_nms_topk_test=model.get("rpn_pre_nms_topk_test", 1000),
         rpn_post_nms_topk_test=model.get("rpn_post_nms_topk_test", 300),
         min_size=config["image_size"],

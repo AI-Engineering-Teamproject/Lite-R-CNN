@@ -24,3 +24,6 @@ checkpoints/
 .pytest_cache/
 .ruff_cache/
 yolo26n.pt
+
+# Ultralytics settings written by the race page and tests (YOLO_CONFIG_DIR)
+outputs/.ultralytics/

@@ -216,7 +216,7 @@ def test_train_resume_best_and_saved_architecture(coco, tmp_path):
         "--output",
         report,
     )
-    assert json.loads(report.read_text())["images_evaluated"] == 2
+    assert json.loads(report.read_text(encoding="utf-8"))["images_evaluated"] == 2
     run_script(
         "scripts/benchmark.py",
         "--model",

@@ -1,4 +1,4 @@
-"""COCO dataset loading and batching helpers."""
+"""COCO dataset loading, batching and multi-scale training helpers."""
 
 from __future__ import annotations
 
@@ -67,3 +67,31 @@ def build_coco_loader(
     )
     return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=workers,
                       pin_memory=torch.cuda.is_available(), collate_fn=detection_collate)
+
+
+def multiscale_min_sizes(min_sizes, max_size, image_size) -> tuple[int, ...]:
+    """Validated short-side choices for GeneralizedRCNNTransform multi-scale training.
+
+    In training mode the transform draws one of ``min_size`` per image (torch_choice) and caps the
+    long side at ``max_size``; in eval mode it uses ``min_size[-1]`` and ``max_size``. The sizes
+    are sorted so ``image_size`` comes last and ``max_size`` must equal it: validation, export and
+    saved checkpoints keep the fixed canvas. With a 640 cap a 4:3 image already reaches 640x480
+    at short side 480, so only sizes below the short side of the full-size image shrink it.
+    """
+    sizes = tuple(sorted(int(size) for size in min_sizes))
+    if int(max_size) != int(image_size):
+        raise ValueError(f"train.multiscale.max_size must equal image_size ({image_size})")
+    if not sizes or sizes[0] < 32 or sizes[-1] != int(image_size):
+        raise ValueError(
+            f"train.multiscale.min_sizes must lie in [32, {image_size}] and include {image_size}"
+        )
+    return sizes
+
+
+def enable_multiscale(transform, min_sizes, max_size):
+    """Random per-image short side in the model transform (resizing in the dataset would be
+    undone by the transform); eval mode keeps the transform's own size."""
+    if int(max_size) != int(transform.max_size):
+        raise ValueError(f"train.multiscale.max_size must equal image_size ({transform.max_size})")
+    transform.min_size = multiscale_min_sizes(min_sizes, max_size, transform.min_size[-1])
+    return transform

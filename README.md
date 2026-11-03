@@ -161,6 +161,27 @@ python scripts/run_comparison.py --single-image data/coco/images/val2017/0000001
 
 단일 이미지 결과는 동작 확인용이며 일반적인 지연 시간 분포를 대표하지 않습니다. 전체 비교 실행은 단계 중 하나라도 실패하면 중단되며 결과를 `outputs/comparison_runs/`의 해당 실행 폴더에 저장합니다.
 
+### 성능 측정과 그래프
+
+측정 규칙, 결과 파일 형식, 그래프 읽는 법은 [성능 측정 안내](docs/MEASUREMENT.md)에 정리했습니다. 자주 쓰는 명령은 다음과 같습니다.
+
+```powershell
+# 학습 중 검증한 최고 epoch 정확도를 결과 파일로 가져오기 (outputs/reports/light_rcnn_accuracy_training.json)
+python scripts/import_training_results.py outputs/coco_4090_v2
+# 이미지 폴더 하나로 세 모델의 지연 시간만 측정
+python scripts/run_comparison.py --inference-only --source data/coco/images/val2017 --device cuda --light-weights outputs/coco_4090_v2/best.pth --no-dashboard
+# 대화형 대시보드 (왼쪽 메뉴에서 결과 폴더와 지연 시간 측정 장치 선택)
+streamlit run dashboard/app.py
+# PNG·SVG 그래프와 HTML 보고서 저장
+python scripts/plot_results.py --reports outputs --out outputs/figures --theme both
+```
+
+학습 중 검증 결과는 점수 임계값 0.05로 계산되어 비교용 평가(0.001)와 조건이 다릅니다. 세 모델의 최종 비교 숫자는 `run_comparison.py` 또는 `evaluate_coco.py`로 다시 평가한 값을 사용하십시오.
+
+### 성능 개선 계획과 Colab 실행
+
+재학습 없는 추론 설정(Conv+BN 융합, RPN 후보 축소, 고정 캔버스, Soft-NMS 등)과 v3.1 학습 ablation의 우선순위·근거·채택 기준은 [성능 개선 계획](docs/PERFORMANCE_PLAN.md)에 정리했습니다. CPU 스모크 측정(COCO 128장, 4코어 CPU, 같은 측정 두 번)에서는 `fast`가 AP를 유지하면서 `deploy`보다 v2 25~28%, v3 35~36% 빨랐고, `accurate`는 AP가 v2 +3.45%p, v3 +1.75%p 올랐습니다 (학습 이미지가 섞인 스모크 세트라 AP는 상대 비교용이고, T4 결과는 Colab에서 확인합니다). Google Colab 무료 T4에서 세 모델 기준 비교와 개선 전/후 비교를 한 번에 실행하는 노트북은 `notebooks/Lite_RCNN_T4_Colab.ipynb`입니다. 브랜치 올리기(Windows 명령 프롬프트), Colab 실행, 결과 보내기·대시보드로 보기, 학교 RTX 4090 학습 순서는 [Colab·4090 실행 안내](docs/COLAB.md)를 따르십시오.
+
 ## 비교 프로토콜
 
 성능 측정 담당자와 데이터셋 담당자는 세 모델에 동일한 COCO split과 이미지 집합을 사용하고, 입력 크기 640, batch size 1, 장치와 정밀도를 기록합니다. 각 프레임워크의 resize/padding 방식은 다를 수 있으므로 설정도 함께 남깁니다.
