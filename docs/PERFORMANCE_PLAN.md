@@ -8,6 +8,8 @@
 1. **재학습 없는 추론 설정** (지금): Conv+BN 융합, RPN 후보 축소, 고정 캔버스, Soft-NMS, CUDA 그래프.
    CPU 스모크 측정으로 확인했고(2절), T4 효과는 Colab 노트북 단계 B(`scripts/compare_improvements.py`)로 처음 확인합니다.
    CPU에서 `fast`는 AP를 유지하면서 `deploy`보다 v2 25~28%, v3 35~36% 빨랐고, `accurate`는 스모크 AP가 v2 +3.45, v3 +1.75%p 올랐습니다.
+   비교 대상은 네 검출기입니다: 기준 모델 두 개(Faster R-CNN ResNet50-FPN, **MobileNetV3 Faster R-CNN**), Lite R-CNN v2/v3, YOLO26 (단계 A).
+   MobileNet 비교군은 2절 끝에 정리했습니다.
 2. **v3.1 학습 ablation** (학교 RTX 4090, 12 epoch씩): 앵커 수정 → 증류 순효과 → EMA → RoI 채널 → 증류 손실 수정 → multi-scale.
 3. **v3.1 전체 학습** (48 epoch): 2에서 채택한 것만 합쳐 한 번.
 4. **하지 않을 것**: 측정상 이득이 없거나 비교를 망치는 것 (아래 4절).
@@ -24,11 +26,14 @@
 - "스모크 AP"는 COCO **train** 이미지 128장으로 잰 값이라 AP가 부풀려집니다 (v2 42.2% vs 전체 val 28.8%). **방향과 상대 크기만** 참고하십시오.
   128장 기준 AP 차이의 신뢰구간은 ±0.5~1%p입니다. AP는 두 실행에서 똑같았습니다.
 - GPU(T4) 숫자는 아직 없습니다. Colab 단계 B에서 나옵니다. 특히 channels_last와 CUDA 그래프는 장치에 따라 결과가 크게 다릅니다.
+- 두 기준 모델(Faster R-CNN, MobileNetV3 Faster R-CNN)의 숫자는 CPU에서도 없습니다. 이 환경에서는 torchvision COCO 가중치(download.pytorch.org)를
+  받을 수 없어 빠졌고, Colab 단계 A·B에서 처음 나옵니다.
 - 학습 검증 AP(배치 4, 점수 하한 0.05)와 batch 1 평가 AP는 같은 모델도 0.5~1%p 다릅니다. 같은 방식끼리만 비교합니다.
 
 ## 2. 재학습 없는 개선 (우선순위 순)
 
-`src/light_rcnn/inference_opts.py`의 추론 설정(preset)입니다. 가중치는 그대로이고, **Faster R-CNN에도 같은 설정을 적용해** 비교합니다.
+`src/light_rcnn/inference_opts.py`의 추론 설정(preset)입니다. 가중치는 그대로이고, **두 기준 모델(Faster R-CNN ResNet50-FPN,
+MobileNetV3 Faster R-CNN)에도 같은 설정을 적용해** 비교합니다.
 
 | 순위 | 레버 (설정) | CPU 지연 (p50 변화) | 스모크 AP 변화 (%p) | val 5000장 기대 | T4에서 볼 것 |
 |---|---|---|---|---|---|
@@ -59,7 +64,8 @@
 | v3 `accurate` | 36.66 | +1.75 | 46.0 | 81 / 80 | −36.7 [−39.4, −34.1] / −32.1 [−36.1, −28.9] | +1.6 [−5.1, +11.1] / +3.2 [−2.1, +13.5] |
 | v3 `accurate_fast` | 36.15 | +1.25 | 46.2 | 77 / 77 | −39.7 [−41.9, −37.7] / −34.8 [−38.9, −32.0] | −3.2 [−8.2, +4.9] / −0.9 [−6.4, +8.5] |
 
-검출 점수 하한 0.05, 지연 시간 16장 × 20라운드 (설정마다 320회). Faster R-CNN은 이 환경에서 가중치를 받을 수 없어 빠졌습니다.
+검출 점수 하한 0.05, 지연 시간 16장 × 20라운드 (설정마다 320회). Faster R-CNN과 MobileNetV3 Faster R-CNN은 이 환경에서 torchvision 가중치를
+받을 수 없어 빠졌습니다 (T4 숫자는 Colab 단계 A·B에서).
 
 **솔직한 기대치**
 
@@ -79,7 +85,7 @@
   '비교 전에 확인할 점'과 `summary.csv`의 `note`에 남습니다.
 - `torch.compile`(옵션 `compile_backbone`, 설정 목록에는 없음): CPU에서 v2 −7%, v3 ≈0(이전 순차 측정)이었고 컴파일 시간이 깁니다. 우선순위 낮음.
 
-**T4 결과로 정하는 규칙** (단계 B, val 5000장, Faster R-CNN 포함)
+**T4 결과로 정하는 규칙** (단계 B, val 5000장, 두 기준 모델 포함)
 
 - 지연 시간 변화는 `summary.md`의 [95% CI]로 판단합니다. **구간이 0을 포함하면 "변화 없음"**입니다.
 - 구간은 한 실행 안의 흔들림만 담습니다. 그래서 **10% 안팎보다 작은 차이에 기대는 결정**(채택 기준값 근처인 경우 포함)은
@@ -91,7 +97,24 @@
 - `accurate_fast`는 `accurate`가 목표 시간을 넘고, `accurate_fast`가 확실히 더 빠를 때(두 설정의 `Δp50 vs deploy` 구간이 겹치지 않음)만
   AP 손실을 감수하고 대신 씁니다.
 - `gpu_graph`는 그래프가 캡처되었고 고정 캔버스를 쓰고도 `Δp50 vs deploy`가 −10% 이하이며 구간 상한이 0보다 작으면 GPU 배포 설정으로 채택합니다.
-- 보고서에는 세 모델 모두 `baseline`과 채택한 설정을 나란히 적습니다.
+- 보고서에는 네 모델(두 기준 모델 포함) 모두 `baseline`과 채택한 설정을 나란히 적습니다.
+
+### MobileNet 비교군 (MobileNetV3 Faster R-CNN)
+
+torchvision `fasterrcnn_mobilenet_v3_large_fpn`(COCO_V1 가중치, 320 전용 모델 아님)입니다. 팀원 브랜치 `feat/personal-comparison-ci`의
+독립 네 모델 비교에서 쓴 "MobileNet 벤치마크"와 같은 모델을, 이 저장소의 도구로 같은 프로토콜(같은 이미지·타이밍 범위·추론 설정·융합 규칙·
+점수 하한과 최대 검출 수)에서 잽니다: 단계 A(`run_comparison.py`), 단계 B(`compare_improvements.py`의 `mobilenet`),
+단계 C(`evaluate_three_models_gpu_full.py --with-mobilenet`).
+
+- **왜**: Lite R-CNN과 같은 MobileNetV3-Large 계열 백본을 쓰는 기존 경량 Faster R-CNN입니다. Lite R-CNN이 이미 있는 가벼운 R-CNN보다
+  정확하고 빠른지, 어디쯤인지 보여 줍니다. 학습·특징 융합(FPN과 BiFPN)·앵커·제안 수가 모두 달라 **BiFPN의 효과를 가르는 ablation은 아닙니다.**
+- **가중치와 입력**: torchvision 문서의 box AP 32.8은 800px(짧은 변 800, 긴 변 최대 1333) 기준입니다. 여기서는 ResNet50 기준 모델처럼 640으로 리사이즈하므로
+  더 낮게 나올 수 있습니다. 앵커, RPN 객체성 점수 하한 0.05, 테스트 제안 1000개 등 나머지 torchvision 기본값은 그대로 둡니다 (단계 C만 모든 모델의
+  제안 수를 300개로 맞춤). 이 값은 단계 B 보고서의 `inference_options.applied`(`rpn_score_thresh`, 제안 수)와 단계 C `evaluation.json`의
+  `rpn_settings`(점수 하한, 앵커)에 기록되고, 단계 A 보고서에는 남지 않습니다.
+- **볼 것**: 단계 A의 AP·p50에서 Lite R-CNN v2/v3가 MobileNetV3 Faster R-CNN보다 AP가 높은지, p50이 짧은지. 둘 다 아니면 Lite R-CNN의 이점을
+  다시 따져 봅니다. 단계 B에서는 같은 추론 설정이 MobileNet에도 비슷하게 듣는지(예: `fast`의 RPN 단축은 이미 점수 하한 0.05인 MobileNet에서 작을 수 있음) 봅니다.
+- **주의**: MobileNet의 RoIAlign은 stride 32 특징만 쓰므로(특징 맵 '0'·'1'이 모두 stride 32) AP_S가 낮게 나오는 것이 정상입니다.
 
 ## 3. 재학습 ablation (학교 RTX 4090)
 
@@ -149,7 +172,7 @@ v3는 val AP 26.80%로 v2(28.82%)보다 낮고, 특히 큰 객체(AP_L 38.6 vs 4
 | RoI 헤드 NMS 전 후보 상한 (1000개) | AP 변화 0이고 지연 이득도 보이지 않음 (v2 +2.6%, v3 +4.5%) |
 | NMS 좌표 오프셋 방식 강제 | torchvision `batched_nms`가 상자 수에 따라 빠른 방식을 이미 고릅니다. 강제해도 이득이 없고 상자가 많으면 느려짐 |
 | 재학습 없이 입력을 800으로 키우기 | AP v2 −1.1, v3 −2.0%p (AP_S만 +3%p 안팎), 평가 시간 +40~70% |
-| 한 모델에만 점수 하한·NMS·제안 수 바꾸기 | 불공정한 비교. `compare_improvements.py`는 Faster R-CNN에도 같은 설정을 자동 적용 |
+| 한 모델에만 점수 하한·NMS·제안 수 바꾸기 | 불공정한 비교. `compare_improvements.py`는 두 기준 모델(Faster R-CNN, MobileNetV3 Faster R-CNN)에도 같은 설정을 자동 적용 |
 | 학습 검증 AP와 batch 1 평가 AP, 단계 A(하한 0.001)와 단계 B(하한 0.05) AP를 섞기 | 같은 모델도 0.5~1%p 차이. 하한이 낮을수록 AP가 유리 |
 | 128장 스모크 AP로 결론 내기 | 학습 이미지라 부풀려지고 신뢰구간이 ±0.5~1%p |
 | CPU의 channels_last 이득을 GPU에 그대로 기대하기 | 장치마다 다름. GPU는 자동 규칙상 꺼져 있고 아직 재지 않음 |
@@ -165,9 +188,10 @@ v3는 val AP 26.80%로 v2(28.82%)보다 낮고, 특히 큰 객체(AP_L 38.6 vs 4
 - 정확도: 같은 5000장을 짝지어 비교하므로 **|ΔAP| < 0.1%p**는 같은 것으로 봅니다.
   구간이 없는 값(p95, FPS, 순차 측정의 p50)은 **3% 미만** 변화를 같은 것으로 봅니다 (대시보드 판정도 같은 기준). p95는 p50보다 더 흔들립니다.
 - "비교 전에 확인할 점"에 `[비교 불가]`가 있으면 그 행은 쓰지 않습니다.
+- MobileNetV3 Faster R-CNN 행은 Lite R-CNN과 같은 백본 계열의 기존 경량 R-CNN입니다. Lite R-CNN 행과 나란히 읽되, 차이를 BiFPN 하나의 효과로 읽지 않습니다 (2절 끝).
 - Lite R-CNN의 GPU 지연은 파이썬·커널 실행 오버헤드(CPU) 비중이 커서 Colab의 느린 CPU에서 불리하게 나옵니다. 같은 실행 안에서만 비교합니다.
 - 대시보드: 저장소 폴더에서 `streamlit run dashboard/app.py`를 실행하고, 사이드바 **결과 폴더**에 `outputs/improvements/<실행>/reports`를
-  넣습니다 (어느 셸에서나 됨). 이 폴더에는 v2와 v3가 함께 있으므로 사이드바 **Light R-CNN 체크포인트**에서 버전을 고르고
+  넣습니다 (어느 셸에서나 됨). 두 기준 모델의 보고서는 버전 폴더마다 함께 들어 있습니다. 이 폴더에는 v2와 v3가 함께 있으므로 사이드바 **Light R-CNN 체크포인트**에서 버전을 고르고
   (버전별 폴더 `reports/v2`·`reports/v3`를 넣어도 됨), **추론 설정**을 바꿔 가며 **개선 전/후** 탭을 봅니다.
   그 탭의 p50 변화에는 `baseline` 대비 95% CI와 판정('좋아짐', '나빠짐', '변화 없음 (오차 범위)')이 붙습니다.
   `fast`를 판단할 `deploy` 대비 값은 `summary.md`의 `Δp50 vs deploy` 열에서 봅니다.

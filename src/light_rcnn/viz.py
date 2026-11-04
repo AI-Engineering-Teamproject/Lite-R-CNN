@@ -2,7 +2,13 @@
 
 Design rules (kept deliberately fixed so every chart reads as one system):
 - Each model keeps one color and one marker shape everywhere; colors follow the model, never a rank.
-  The three categorical colors pass the CVD / normal-vision checks for all pairs in both themes.
+  Colors are the reference palette's slots in order: blue, orange, aqua pass the CVD /
+  normal-vision checks for all pairs in both themes; no fourth slot can (validate_palette.js
+  --pairs all: slot 4 yellow, the best of the five, fails yellow vs orange at normal-vision
+  dE 13.7 light / 10.6 dark and CVD dE 4.8 dark). So MobileNetV3 Faster R-CNN's yellow never
+  works alone: a triangle wherever models share a plot area, direct labels in the trade-off
+  chart, a labeled row in the one-row-per-model charts, legend order in the grouped bars, and the
+  table twin of every chart.
 - One y-axis per chart (no dual axes); thin marks, hairline solid grid, values labeled selectively.
 - Text uses ink colors, never series colors. Every chart has a table twin in the dashboard.
 """
@@ -21,6 +27,7 @@ from light_rcnn.reporting import (
     BASELINE_VARIANT,
     BASELINE_VARIANT_LABEL,
     COLD_START_LABELS,
+    KINDS,
     MODEL_ORDER,
     MODELS,
     STAGE_LABELS,
@@ -45,7 +52,8 @@ THEMES: dict[str, dict[str, Any]] = {
         "axis": "#c3c2b7",
         "wash": "rgba(11,11,11,0.045)",
         "border": "rgba(11,11,11,0.10)",
-        "models": {"light_rcnn": "#2a78d6", "faster_rcnn": "#eb6834", "yolo26": "#1baf7a"},
+        "models": {"light_rcnn": "#2a78d6", "faster_rcnn": "#eb6834", "yolo26": "#1baf7a",
+                   "mobilenet_faster_rcnn": "#eda100"},
         # Ordinal one-hue ramp for pipeline stages (validated: monotone L, adjacent dL >= 0.06).
         "stages": ["#86b6ef", "#5598e7", "#2a78d6", "#1c5cab", "#104281"],
     },
@@ -59,13 +67,15 @@ THEMES: dict[str, dict[str, Any]] = {
         "axis": "#383835",
         "wash": "rgba(255,255,255,0.06)",
         "border": "rgba(255,255,255,0.10)",
-        "models": {"light_rcnn": "#3987e5", "faster_rcnn": "#d95926", "yolo26": "#199e70"},
+        "models": {"light_rcnn": "#3987e5", "faster_rcnn": "#d95926", "yolo26": "#199e70",
+                   "mobilenet_faster_rcnn": "#c98500"},
         "stages": ["#cde2fb", "#86b6ef", "#3987e5", "#256abf", "#184f95"],
     },
 }
 
-# Secondary encoding so identity never rides on color alone.
-MODEL_SYMBOLS = {"light_rcnn": "circle", "faster_rcnn": "diamond", "yolo26": "square"}
+# Secondary encoding so identity never rides on color alone (every shape has an '-open' variant).
+MODEL_SYMBOLS = {"light_rcnn": "circle", "faster_rcnn": "diamond", "yolo26": "square",
+                 "mobilenet_faster_rcnn": "triangle-up"}
 # Pipeline stages drawn as stacked segments; 'input' (device copy + scaling) folds into preprocess.
 CHART_STAGES = ["preprocess", "backbone", "rpn", "roi_heads", "postprocess"]
 CHART_STAGE_LABELS = {**STAGE_LABELS, "preprocess": "입력·전처리"}
@@ -79,6 +89,7 @@ AP_METRICS = {
     "AP_large": "AP 대형",
 }
 PERCENTILES = [("p50_ms", "p50"), ("p90_ms", "p90"), ("p95_ms", "p95"), ("p99_ms", "p99")]
+STABILITY_MARKERS = 8  # model-shaped markers per rolling-median line (plotly staggers the traces)
 
 Selected = dict[tuple[str, str], Report]
 # Optional display name per model key; the dashboard names the chosen checkpoint ('Light R-CNN v3').
@@ -87,6 +98,59 @@ ModelLabels = dict[str, str] | None
 
 def _theme(name: str) -> dict[str, Any]:
     return THEMES["dark" if name == "dark" else "light"]
+
+
+# Plotly's triangle covers about 70% of the area of a circle, square or diamond of the same size.
+SYMBOL_SCALE = {"triangle-up": 1.25}
+
+
+def _symbol_size(model: str, size: float) -> int:
+    """Marker size that gives the model's shape the visual weight of the others."""
+    return round(size * SYMBOL_SCALE.get(MODEL_SYMBOLS[model], 1.0))
+
+
+# Direct labels of the trade-off chart are placed on a nominal plot area (the 1400 px dashboard;
+# wider exports only add room) with 13 px text about this wide per character.
+TRADEOFF_PLOT_PX = (800, 270)
+TRADEOFF_CHAR_PX = 7.5
+LABEL_POSITIONS = ("top center", "bottom center", "middle left", "middle right")
+
+
+def _label_positions(points: list[tuple[float, float, float, str]], x_max: float, y_max: float,
+                     plot_px: tuple[float, float] = TRADEOFF_PLOT_PX) -> list[str]:
+    """A textposition per (x, y, whisker, label) point so no direct label covers another label,
+    a marker or a p95 whisker: the highest point first, each label above its marker if that is
+    free, else below, left or right (two lightweight R-CNNs often sit close together)."""
+    width, height = plot_px
+    sx, sy = width / max(x_max, 1e-9), height / max(y_max, 1e-9)
+    taken = []  # boxes in px, (x0, x1, y0, y1) with y up
+    for x, y, whisker, _ in points:
+        cx, cy = x * sx, y * sy
+        taken.append((cx - 9, cx + 9, cy - 9, cy + 9))  # 14 px marker and its 2 px ring
+        if whisker:
+            taken.append((cx, cx + whisker * sx, cy - 4, cy + 4))
+
+    def box(position: str, cx: float, cy: float, half: float) -> tuple[float, ...]:
+        return {"top center": (cx - half, cx + half, cy + 10, cy + 26),
+                "bottom center": (cx - half, cx + half, cy - 26, cy - 10),
+                "middle left": (cx - 12 - 2 * half, cx - 12, cy - 8, cy + 8),
+                "middle right": (cx + 12, cx + 12 + 2 * half, cy - 8, cy + 8)}[position]
+
+    def free(candidate: tuple[float, ...]) -> bool:
+        inside = (candidate[0] >= -8 and candidate[1] <= width + 8 and candidate[2] >= -4
+                  and candidate[3] <= height + 4)
+        return inside and not any(candidate[0] < other[1] and other[0] < candidate[1]
+                                  and candidate[2] < other[3] and other[2] < candidate[3]
+                                  for other in taken)
+
+    positions = ["top center"] * len(points)
+    for index in sorted(range(len(points)), key=lambda i: -points[i][1]):
+        x, y, _, text = points[index]
+        cx, cy, half = x * sx, y * sy, len(text) * TRADEOFF_CHAR_PX / 2
+        positions[index] = next((position for position in LABEL_POSITIONS
+                                 if free(box(position, cx, cy, half))), "top center")
+        taken.append(box(positions[index], cx, cy, half))
+    return positions
 
 
 def model_color(model: str, theme: str = "light") -> str:
@@ -236,7 +300,7 @@ def tradeoff_figure(selected: Selected, targets: dict[str, Any], theme: str = "l
     target_ms = _num(targets.get("latency_ms"))
     target_ap = _pct(targets.get("ap"))
     note = _target_note(selected)
-    xs, ys = [], []
+    points = []  # (model, x, y, p95, whisker)
     for model in models:
         acc = selected[("accuracy", model)].section
         lat = selected[("latency", model)].section
@@ -245,15 +309,22 @@ def tradeoff_figure(selected: Selected, targets: dict[str, Any], theme: str = "l
             continue
         p95 = _num(lat.get("p95_ms"))
         whisker = max(p95 - x, 0.0) if p95 is not None and percentile == "p50" else None
-        xs.append(x + (whisker or 0))
-        ys.append(y)
+        points.append((model, x, y, p95, whisker))
+    if not points:
+        return empty_figure("선택한 지표 값이 결과 파일에 없습니다.", theme, title=title)
+    x_max = max([x + (whisker or 0) for _, x, _, _, whisker in points]
+                + [target_ms or 0]) * 1.18 or 1
+    y_max = min(max([y for _, _, y, _, _ in points] + [target_ap or 0]) * 1.15 + 2, 100)
+    positions = _label_positions([(x, y, whisker or 0, _label(model, model_labels))
+                                  for model, x, y, _, whisker in points], x_max, y_max)
+    for (model, x, y, p95, whisker), position in zip(points, positions):
         name = _label(model, model_labels)
         fig.add_trace(go.Scatter(
             x=[x], y=[y], mode="markers+text", name=name,
-            text=[name], textposition="top center",
+            text=[name], textposition=position,
             textfont={"color": t["ink"], "size": 13},
-            marker={"size": 14, "color": t["models"][model], "symbol": MODEL_SYMBOLS[model],
-                    "line": {"color": t["surface"], "width": 2}},
+            marker={"size": _symbol_size(model, 14), "color": t["models"][model],
+                    "symbol": MODEL_SYMBOLS[model], "line": {"color": t["surface"], "width": 2}},
             error_x={"type": "data", "symmetric": False, "array": [whisker or 0], "arrayminus": [0],
                      "visible": whisker is not None, "color": t["models"][model], "thickness": 2,
                      "width": 6},
@@ -262,10 +333,6 @@ def tradeoff_figure(selected: Selected, targets: dict[str, Any], theme: str = "l
                            f"<b>%{{x:.2f}} ms</b> {percentile}<br>p95 %{{customdata[0]:.2f}} ms"
                            f"<extra>{name}</extra>"),
         ))
-    if not xs:
-        return empty_figure("선택한 지표 값이 결과 파일에 없습니다.", theme, title=title)
-    x_max = max([*xs, target_ms or 0]) * 1.18 or 1
-    y_max = min(max([*ys, target_ap or 0]) * 1.15 + 2, 100)
     if target_ms is not None and target_ap is not None:
         fig.add_shape(type="rect", x0=0, x1=target_ms, y0=target_ap, y1=y_max, layer="below",
                       fillcolor=t["wash"], line={"width": 0})
@@ -408,8 +475,13 @@ def latency_stability_figure(selected: Selected, theme: str = "light", *, window
         fig.add_trace(go.Scatter(x=index, y=samples, mode="markers", name=name,
                                  marker={"size": 4, "color": color, "opacity": 0.28}, showlegend=False,
                                  hovertemplate="반복 %{x}: %{y:.2f} ms<extra>" + name + "</extra>"))
-        fig.add_trace(go.Scatter(x=index, y=_rolling_median(samples, window), mode="lines",
+        # A few model-shaped markers on each median line: four overlaid lines need more than color.
+        fig.add_trace(go.Scatter(x=index, y=_rolling_median(samples, window), mode="lines+markers",
                                  name=name, line={"color": color, "width": 2},
+                                 marker={"symbol": MODEL_SYMBOLS[model], "color": color,
+                                         "size": _symbol_size(model, 9),
+                                         "maxdisplayed": STABILITY_MARKERS,
+                                         "line": {"color": t["surface"], "width": 1}},
                                  hovertemplate="반복 %{x} 중앙값 %{y:.2f} ms<extra>" + name + "</extra>"))
     fig.update_xaxes(title={"text": "측정 반복 순서"}, rangemode="tozero")
     fig.update_yaxes(title={"text": "지연 시간 (ms)"}, rangemode="tozero")
@@ -463,6 +535,9 @@ def accuracy_figure(selected: Selected, theme: str = "light", *,
                  subtitle="막대가 높을수록 좋음 · AP50은 느슨한 기준, AP75는 엄격한 기준 · 크기별은 작은 물체에 약한지 보여 줌",
                  height=460, panel_titles=True)
     y_max = 0.0
+    # A metric's bars share 1 - bargap category units and a value label is ~4 digits wide: four
+    # models get a narrower gap between metrics and 11 px values, so neighbors' labels stay apart.
+    crowded = len(models) > 3
     for col, (_, metrics) in enumerate(groups, start=1):
         for model in models:
             acc = selected[("accuracy", model)].section
@@ -478,15 +553,15 @@ def accuracy_figure(selected: Selected, theme: str = "light", *,
                 text=[f"{v:.1f}" if v is not None else "" for v in values], textposition="outside",
                 # Labels are wider than the thin bars; constraining them would shrink some below
                 # uniformtext.minsize, which then hides them.
-                textfont={"color": t["ink_secondary"], "size": 12}, cliponaxis=False,
-                constraintext="none",
+                textfont={"color": t["ink_secondary"], "size": 11 if crowded else 12},
+                cliponaxis=False, constraintext="none",
                 hovertemplate="<b>%{y:.2f}%</b> %{x}<extra>" + _label(model, model_labels) + "</extra>",
             ), row=1, col=col)
     _left_align_panel_titles(fig, t)
     fig.update_yaxes(range=[0, max(y_max * 1.18, 5)], ticksuffix="%")
     fig.update_yaxes(title={"text": "AP (%)"}, row=1, col=1)
     fig.update_xaxes(showgrid=False, tickfont={"color": t["ink_secondary"]})
-    fig.update_layout(barmode="group", showlegend=True)
+    fig.update_layout(barmode="group", showlegend=True, bargap=0.2 if crowded else 0.35)
     return fig
 
 
@@ -525,8 +600,9 @@ def per_class_figure(selected: Selected, theme: str = "light", *, top: int = 20,
         label = _label(model, model_labels)
         fig.add_trace(go.Scatter(
             x=[x * 100 if x is not None else None for x in xs], y=chosen, mode="markers", name=label,
-            marker={"size": 10, "color": t["models"][model], "symbol": MODEL_SYMBOLS[model],
-                    "line": {"color": t["surface"], "width": 2}}, cliponaxis=False,
+            marker={"size": _symbol_size(model, 10), "color": t["models"][model],
+                    "symbol": MODEL_SYMBOLS[model], "line": {"color": t["surface"], "width": 2}},
+            cliponaxis=False,
             hovertemplate="<b>%{x:.1f}%</b> %{y}<extra>" + label + "</extra>",
         ))
     fig.update_xaxes(title={"text": "AP@[.50:.95] (%)"}, rangemode="tozero", ticksuffix="%")
@@ -794,7 +870,8 @@ def improvement_figure(baseline_selected: Selected, variant_selected: Selected, 
                     x=[value], y=[label], mode="markers+text" if rightmost else "markers",
                     text=[text] if rightmost else None, textposition="middle right",
                     textfont={"color": t["ink"], "size": 12},
-                    marker={"size": 12, "symbol": symbol if after else f"{symbol}-open", "color": color,
+                    marker={"size": _symbol_size(model, 12), "color": color,
+                            "symbol": symbol if after else f"{symbol}-open",
                             "line": {"color": t["surface"] if after else color, "width": 2}},
                     showlegend=False, cliponaxis=False,
                     hovertemplate=(f"<b>%{{x:.2f}}{unit}</b>" + (f" ({hover})" if after else "")
@@ -915,6 +992,13 @@ def build_all(selected: Selected, targets: dict[str, Any], theme: str = "light",
     return figures
 
 
+def in_display_order(selected: Selected) -> list[tuple[tuple[str, str], Report]]:
+    """``selected`` items by kind, then in MODEL_ORDER (not alphabetically: the MobileNet key
+    would land between Light R-CNN and YOLO26)."""
+    return sorted(selected.items(), key=lambda item: (KINDS.index(item[0][0]),
+                                                      MODEL_ORDER.index(item[0][1])))
+
+
 def summary_rows(selected: Selected, *, model_labels: ModelLabels = None) -> list[dict[str, Any]]:
     """One row per model with the headline numbers; the table twin of every chart."""
     rows = []
@@ -1017,7 +1101,7 @@ def html_report(figures, rows, warnings, selected, theme: str, title: str, *,
         first = False
     parts.append("<h2>측정 출처</h2><div class='card'><table><thead><tr><th>종류</th><th>모델</th>"
                  "<th>환경</th><th>측정 시각</th><th>파일</th></tr></thead><tbody>")
-    for (kind, model), report in sorted(selected.items()):
+    for (kind, model), report in in_display_order(selected):
         parts.append(f"<tr><td>{html.escape(kind)}</td><td>{html.escape(_label(model, model_labels))}</td>"
                      f"<td>{html.escape(describe_environment(report.environment))}</td>"
                      f"<td>{html.escape(report.created_at)}</td><td>{html.escape(report.source)}</td></tr>")

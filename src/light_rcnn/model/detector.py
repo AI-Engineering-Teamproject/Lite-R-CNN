@@ -1,4 +1,5 @@
-"""Faster R-CNN reference and lightweight Faster R-CNN student builders."""
+"""Faster R-CNN reference baselines (torchvision ResNet50-FPN and MobileNetV3-Large-FPN) and the
+lightweight Faster R-CNN student builders."""
 
 from __future__ import annotations
 
@@ -6,9 +7,14 @@ from collections import OrderedDict
 
 import torch
 from torch import nn
-from torchvision.models.detection import FasterRCNN, fasterrcnn_resnet50_fpn
+from torchvision.models.detection import (
+    FasterRCNN,
+    fasterrcnn_mobilenet_v3_large_fpn,
+    fasterrcnn_resnet50_fpn,
+)
 from torchvision.models.detection.anchor_utils import AnchorGenerator
 from torchvision.models.detection.faster_rcnn import (
+    FasterRCNN_MobileNet_V3_Large_FPN_Weights,
     FasterRCNN_ResNet50_FPN_Weights,
     FastRCNNPredictor,
 )
@@ -162,11 +168,37 @@ def build_vanilla_faster_rcnn(
     )
 
 
+def build_mobilenet_faster_rcnn(
+    num_classes: int = 91,
+    pretrained: bool = True,
+    min_size: int = 640,
+    max_size: int = 640,
+) -> FasterRCNN:
+    """Build torchvision's Faster R-CNN MobileNetV3-Large-FPN comparison baseline.
+
+    The full model, not the 320 px one: COCO_V1 weights when ``pretrained`` (box AP 32.8 at its
+    native 800/1333 resize), else nothing is downloaded (weights=None, weights_backbone=None;
+    BatchNorm2d instead of the pretrained FrozenBatchNorm2d). Like the ResNet-50 baseline it
+    resizes to the shared image size (min_size = max_size); every other torchvision default
+    (anchors, rpn_score_thresh 0.05, 1000 proposals) stays.
+    """
+    weights = FasterRCNN_MobileNet_V3_Large_FPN_Weights.COCO_V1 if pretrained else None
+    return fasterrcnn_mobilenet_v3_large_fpn(
+        weights=weights,
+        weights_backbone=None,
+        num_classes=None if pretrained else num_classes,
+        min_size=min_size,
+        max_size=max_size,
+    )
+
+
 def build_detector(kind: str = "light_rcnn", **kwargs) -> nn.Module:
     if kind == "light_rcnn":
         return LightRCNN(**kwargs)
     if kind == "faster_rcnn":
         return build_vanilla_faster_rcnn(**kwargs)
+    if kind == "mobilenet_faster_rcnn":
+        return build_mobilenet_faster_rcnn(**kwargs)
     raise ValueError(f"Unknown detector kind: {kind}")
 
 

@@ -2,6 +2,7 @@ import copy
 import importlib.util
 import json
 from pathlib import Path
+from urllib.error import URLError
 
 import numpy as np
 import pytest
@@ -175,3 +176,66 @@ def test_run_folder_config_without_comparison_keys_uses_shared_defaults(tmp_path
     latency = json.loads(output.read_text(encoding="utf-8"))["latency"]
     assert latency["score_threshold"] == COMPARISON_DEFAULTS["latency_score_threshold"]
     assert latency["max_detections"] == COMPARISON_DEFAULTS["max_detections"]
+
+
+def random_mobilenet(image_size: int) -> nn.Module:
+    """torchvision's MobileNetV3-Large-FPN Faster R-CNN, random weights (nothing downloaded)."""
+    torch.manual_seed(0)
+    model = build_detector("mobilenet_faster_rcnn", pretrained=False, num_classes=91,
+                           min_size=image_size, max_size=image_size)
+    randomize_norms(model)
+    return model
+
+
+def test_mobilenet_baseline_latency_report_without_downloads(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(ROOT)
+    built = {}
+
+    def fake_load(kind, config, weights=None, image_size=None):
+        built.update(kind=kind, weights=weights, image_size=image_size)
+        return random_mobilenet(image_size)
+
+    monkeypatch.setattr(benchmark, "load_comparison_model", fake_load)
+    image = tmp_path / "one.jpg"
+    write_image(image)
+    output = tmp_path / "mobilenet_faster_rcnn_latency.json"
+    monkeypatch.setattr("sys.argv", [
+        "benchmark.py", "--model", "mobilenet_faster_rcnn", "--device", "cpu", "--size", "128",
+        "--source", str(image), "--warmup", "1", "--iterations", "2", "--output", str(output),
+    ])
+    benchmark.main()
+
+    assert json.loads(capsys.readouterr().out)["model"] == "mobilenet_faster_rcnn"
+    report = json.loads(output.read_text(encoding="utf-8"))
+    assert built == {"kind": "mobilenet_faster_rcnn", "weights": None, "image_size": 128}
+    assert (report["kind"], report["model"], report["image_size"]) == (
+        "latency", "mobilenet_faster_rcnn", 128)
+    assert report["model_name"] == "MobileNetV3 Faster R-CNN"
+    assert report["weights"] == "torchvision_coco_v1" and report["weights_sha256"] is None
+    latency = report["latency"]
+    comparison = yaml.safe_load((ROOT / "configs/coco.yaml").read_text(encoding="utf-8"))[
+        "comparison"]
+    assert latency["scope_id"] == SCOPE_HOST_TO_DETECTIONS and latency["conv_bn_fused"] is True
+    assert latency["score_threshold"] == comparison["latency_score_threshold"]
+    assert latency["max_detections"] == comparison["max_detections"]
+    assert (latency["n"], latency["warmup"]) == (2, 1) and latency["cold_start_ms"] > 0
+    stats = report["model_stats"]
+    assert stats["flops_input"] == [128, 128] and stats["gflops"] > 0
+    # The full MobileNetV3-Large-FPN model (BatchNorm2d in a random build), not the 320 px one.
+    assert stats["parameters_m"] == pytest.approx(19.41, abs=0.01)
+    assert stats["deployed_parameters_m"] < stats["parameters_m"]  # BatchNorm folded away
+
+
+def test_blocked_mobilenet_weight_download_exits_with_hint(tmp_path, monkeypatch):
+    monkeypatch.chdir(ROOT)
+
+    def offline(*args, **kwargs):
+        raise URLError("Tunnel connection failed: 403 Forbidden")
+
+    monkeypatch.setattr(benchmark, "load_comparison_model", offline)
+    image = tmp_path / "one.jpg"
+    write_image(image)
+    monkeypatch.setattr("sys.argv", ["benchmark.py", "--model", "mobilenet_faster_rcnn",
+                                     "--device", "cpu", "--source", str(image)])
+    with pytest.raises(SystemExit, match="default mobilenet_faster_rcnn weights.*--weights"):
+        benchmark.main()

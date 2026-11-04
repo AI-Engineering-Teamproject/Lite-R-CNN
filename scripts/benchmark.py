@@ -31,6 +31,9 @@ from light_rcnn.reporting import (
     write_report,
 )
 
+# R-CNN kinds light_rcnn.bench.load_comparison_model builds (YOLO26: scripts/benchmark_yolo26.py).
+MODEL_CHOICES = ("light_rcnn", "faster_rcnn", "mobilenet_faster_rcnn")
+
 
 def timed_call(model: torch.nn.Module, image: torch.Tensor, device: torch.device
                ) -> tuple[float, list[dict]]:
@@ -71,7 +74,7 @@ def main():
     parser.add_argument("--config", default="configs/coco.yaml",
                         help="Comparison settings; a Light R-CNN checkpoint's own config still "
                              "decides its architecture")
-    parser.add_argument("--model", choices=("light_rcnn", "faster_rcnn"), default="light_rcnn")
+    parser.add_argument("--model", choices=MODEL_CHOICES, default="light_rcnn")
     parser.add_argument("--weights", help="Checkpoint; omit for torchvision COCO/ImageNet weights")
     parser.add_argument("--device", help="PyTorch device; defaults to the config device")
     parser.add_argument("--size", "--imgsz", dest="size", type=int,

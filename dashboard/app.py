@@ -1,4 +1,5 @@
-"""Interactive comparison dashboard for Faster R-CNN, Light R-CNN and YOLO26.
+"""Interactive comparison dashboard for Faster R-CNN (ResNet50-FPN and MobileNetV3-Large-FPN),
+Light R-CNN and YOLO26.
 
 Run with ``streamlit run dashboard/app.py``. Only streamlit, plotly and pandas are required: the
 chart and report modules are loaded straight from ``src/`` when the package is not installed.
@@ -70,6 +71,14 @@ DELTA_COLUMN_CONFIG = {
     "상대 변화 (%)": st.column_config.NumberColumn(format="%+.1f%%"),
     viz.CI_COLUMN: st.column_config.TextColumn(help=CI_HELP),
 }
+# Four KPI cards share a row (about 220 px each at 1400 px with the sidebar open), so each stacks
+# its two metrics, and while they sit side by side every title keeps two (balanced) lines: a model
+# name that wraps there ('MobileNetV3 Faster R-CNN') leaves its metrics level with the other
+# cards'. Below Streamlit's 640 px breakpoint the cards stack and titles take what they need.
+KPI_CARD_CSS = ('<style>@media (min-width: 641px) { [class*="st-key-kpi_"] > '
+                '[data-testid="stElementContainer"]:first-child '
+                '[data-testid="stMarkdownContainer"] p { min-height: 3.2em; text-wrap: balance; } }'
+                '</style>')
 PERCENTILE_OPTIONS = [name for _, name in viz.PERCENTILES]
 AP_OPTIONS = ["AP_50_95", "AP_50"]
 VARIANT_LABEL = "추론 설정"
@@ -125,10 +134,21 @@ def usable_targets(raw: dict) -> tuple[dict, list[str]]:
     return fixed, ignored
 
 
+# The chart marker of each model (viz.MODEL_SYMBOLS) drawn as a ~10 px CSS shape.
+SWATCH_SHAPES = {
+    "circle": "width:10px;height:10px;border-radius:50%;background:{color}",
+    "square": "width:9px;height:9px;border-radius:1px;background:{color}",
+    "diamond": "width:8px;height:8px;margin-left:1px;background:{color};transform:rotate(45deg)",
+    "triangle-up": ("width:0;height:0;border-left:6px solid transparent;"
+                    "border-right:6px solid transparent;border-bottom:10px solid {color}"),
+}
+
+
 def swatch(model: str, theme: str) -> str:
-    color = viz.model_color(model, theme)
-    return (f"<span style='display:inline-block;width:10px;height:10px;border-radius:50%;"
-            f"background:{color};margin-right:6px'></span>")
+    """The model's color in its chart marker shape: yellow and orange need the shape to differ."""
+    shape = SWATCH_SHAPES.get(viz.MODEL_SYMBOLS.get(model), SWATCH_SHAPES["circle"])
+    style = shape.format(color=viz.model_color(model, theme))
+    return f"<span style='display:inline-block;{style};margin-right:6px'></span>"
 
 
 def checkpoint_names(found: list[Report], choices: list[tuple[str, str]]
@@ -275,7 +295,8 @@ def checkpoint_title(model: str, selection: dict) -> str | None:
 
 
 st.title("Light R-CNN 성능 비교")
-st.caption("바닐라 Faster R-CNN · Light R-CNN · YOLO26 — COCO 정확도, 추론 지연 시간, 병목 단계")
+st.caption("바닐라 Faster R-CNN · MobileNetV3 Faster R-CNN · Light R-CNN · YOLO26 — COCO 정확도, "
+           "추론 지연 시간, 병목 단계")
 
 if errors:
     with st.expander(f"읽지 못한 결과 파일 {len(errors)}개"):
@@ -300,7 +321,9 @@ if not selected:
                 "# 개별 실행 예:\n"
                 f"python scripts/evaluate_coco.py {light}\n"
                 f"python scripts/benchmark.py {light} --source data/coco/images/val2017\n"
-                f"python scripts/profile_stages.py {light} --source data/coco/images/val2017",
+                f"python scripts/profile_stages.py {light} --source data/coco/images/val2017\n"
+                "# MobileNetV3 Faster R-CNN (torchvision COCO 가중치, 첫 실행 때 내려받음):\n"
+                "python scripts/evaluate_coco.py --model mobilenet_faster_rcnn",
                 language="bash")
     st.stop()
 
@@ -350,11 +373,12 @@ if show_variant:
     st.caption(f"추론 설정: **{variant_label}** — 아래 카드와 그래프는 이 설정으로 측정한 결과입니다 "
                "(사이드바에서 변경, 기본 설정과의 비교는 '개선 전/후' 탭).")
 measured_with = {name: {r.model for r in pool if r.variant == name} for name in variant_options}
+st.html(KPI_CARD_CSS)
 cards = st.columns(len(MODEL_ORDER))
 for column, model in zip(cards, MODEL_ORDER):
     acc = selected.get(("accuracy", model))
     lat = selected.get(("latency", model))
-    with column.container(border=True):
+    with column.container(border=True, key=f"kpi_{model}"):
         title = checkpoint_title(model, selected) or model_name(model)
         st.markdown(f"{swatch(model, theme)}**{title}**", unsafe_allow_html=True)
         if acc is None and lat is None:
@@ -371,36 +395,35 @@ for column, model in zip(cards, MODEL_ORDER):
             else:
                 st.caption("결과 없음")
             continue
-        left, right = st.columns(2)
         ap_value = viz._num(acc.section.get(targets["ap_metric"])) if acc else None
         if ap_value is not None:
             gap = ap_value * 100 - ap_target
-            left.metric(ap_label, f"{ap_value * 100:.1f}%", f"{gap:+.1f}%p",
-                        help=f"아래 숫자 = 목표 {ap_target:g}%와의 차이 (+면 목표 달성)")
+            st.metric(ap_label, f"{ap_value * 100:.1f}%", f"{gap:+.1f}%p",
+                      help=f"아래 숫자 = 목표 {ap_target:g}%와의 차이 (+면 목표 달성)")
         else:
-            left.metric(ap_label, "–")
+            st.metric(ap_label, "–")
         latency_value = viz._num(lat.section.get(lat_key)) if lat else None
         env = lat.environment if lat else {}
         on_cpu = env.get("device_type") == "cpu" or env.get("device") == "cpu"
         off_target = lat is not None and not on_target_device(lat)
         if latency_value is not None:
             shown = f"{latency_value:.0f} ms" if latency_value >= 100 else f"{latency_value:.1f} ms"
-            right.metric(lat_label, shown, f"{latency_value - latency_target:+.1f} ms",
-                         delta_color="off" if off_target else "inverse",
-                         help=(f"아래 숫자 = 목표 {latency_target:g} ms(T4 GPU 기준)와의 차이. "
-                               f"{device_label(lat)}에서 측정했으므로 참고용입니다." if off_target
-                               else f"아래 숫자 = 목표 {latency_target:g} ms와의 차이 "
-                                    "(-면 목표 달성)"))
+            st.metric(lat_label, shown, f"{latency_value - latency_target:+.1f} ms",
+                      delta_color="off" if off_target else "inverse",
+                      help=(f"아래 숫자 = 목표 {latency_target:g} ms(T4 GPU 기준)와의 차이. "
+                            f"{device_label(lat)}에서 측정했으므로 참고용입니다." if off_target
+                            else f"아래 숫자 = 목표 {latency_target:g} ms와의 차이 "
+                                 "(-면 목표 달성)"))
         else:
-            right.metric(lat_label, "–")
+            st.metric(lat_label, "–")
         if lat is not None:
-            right.caption(f"측정 장치: {device_label(lat)}")
+            st.caption(f"측정 장치: {device_label(lat)}")
             if off_target:
                 where = ("CPU 측정" if on_cpu
                          else "T4 외 장치" if env.get("device_name") else "T4 여부 미기록")
-                right.caption(f"{where} · 목표(T4 GPU)와 직접 비교 불가")
+                st.caption(f"{where} · 목표(T4 GPU)와 직접 비교 불가")
         elif device:
-            right.caption("이 장치에서 측정한 결과 없음")
+            st.caption("이 장치에서 측정한 결과 없음")
         details = []
         fps = viz._num(lat.section.get("fps")) if lat else None
         if fps:
@@ -705,7 +728,7 @@ with data_tab:
                              rows, report_warnings, selected, "light", report_title, **names),
         file_name="light_rcnn_report.html", mime="text/html", icon=":material/download:")
     with st.expander("선택된 결과 원본 JSON"):
-        for (kind, model), report in sorted(selected.items()):
+        for (kind, model), report in viz.in_display_order(selected):
             raw = dict(report.data)
             latency = raw.get("latency")
             if isinstance(latency, dict) and isinstance(latency.get("samples_ms"), list):

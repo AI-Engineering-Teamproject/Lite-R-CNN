@@ -1,4 +1,5 @@
-"""Evaluate a Faster R-CNN model on COCO val2017 with pycocotools AP metrics (schema-v2 report)."""
+"""Evaluate a Faster R-CNN family model (Light R-CNN, or the torchvision ResNet50-FPN and
+MobileNetV3-Large-FPN baselines) on COCO val2017 with pycocotools AP metrics (schema-v2 report)."""
 
 import argparse
 import json
@@ -29,6 +30,8 @@ from light_rcnn.reporting import (
 )
 
 SHARED_CONFIG = Path(__file__).resolve().parents[1] / "configs/coco.yaml"
+# R-CNN kinds light_rcnn.bench.load_comparison_model builds (YOLO26: scripts/evaluate_yolo26.py).
+MODEL_CHOICES = ("light_rcnn", "faster_rcnn", "mobilenet_faster_rcnn")
 # Checkpoint configs saved before comparison.score_threshold/max_detections existed lack them.
 DEFAULT_SCORE_THRESHOLD = 0.001
 DEFAULT_MAX_DETECTIONS = 100
@@ -73,9 +76,9 @@ def main():
     parser.add_argument("--config", help="Dataset/comparison config; defaults to the config saved "
                                          "in --weights (the architecture always comes from it) "
                                          "with the --limit seed from configs/coco.yaml")
-    parser.add_argument("--model", choices=("light_rcnn", "faster_rcnn"), required=True)
-    parser.add_argument("--weights", help="Required for trained Light R-CNN; "
-                                          "optional for the COCO-pretrained baseline")
+    parser.add_argument("--model", choices=MODEL_CHOICES, required=True)
+    parser.add_argument("--weights", help="Required for trained Light R-CNN; optional for the "
+                                          "COCO-pretrained torchvision baselines")
     parser.add_argument("--device", help="PyTorch device; defaults to the config device")
     parser.add_argument("--imgsz", "--size", dest="size", type=int,
                         help="Override config image_size")

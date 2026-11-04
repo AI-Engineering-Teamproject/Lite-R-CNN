@@ -191,7 +191,7 @@ def test_v1_run_folder_gives_time_and_one_cuda_device(tmp_path):
     assert reporting.timing_devices(reports) == ["cuda (기기명 미기록)"]
     selected = select_reports(reports, device="cuda (기기명 미기록)")
     latency_models = sorted(model for kind, model in selected if kind == "latency")
-    assert latency_models == sorted(reporting.MODELS)
+    assert latency_models == ["faster_rcnn", "light_rcnn", "yolo26"]  # the folder's three models
 
 
 def test_missing_created_at_falls_back_to_mtime_with_note():

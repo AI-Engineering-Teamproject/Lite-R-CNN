@@ -13,8 +13,12 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 # Recorded in the report when --weights is omitted and build_from_config loads library weights.
 DEFAULT_WEIGHTS = {
     "faster_rcnn": "torchvision_coco_v1",
+    "mobilenet_faster_rcnn": "torchvision_coco_v1",
     "light_rcnn": "imagenet_mobilenet_v3_large (untrained detection heads)",
 }
+# Kinds that load_comparison_model builds with torchvision COCO weights when no checkpoint is
+# given (downloaded on first use, so offline runs need the torch hub cache or a local file).
+TORCHVISION_BASELINES = ("faster_rcnn", "mobilenet_faster_rcnn")
 # Configs saved into run folders by train.py predate the score/detection keys of configs/coco.yaml.
 COMPARISON_DEFAULTS = {
     "warmup": 50,
@@ -73,8 +77,9 @@ def load_comparison_model(kind: str, config: dict, weights: str | None = None,
 
     Light R-CNN checkpoints carry the config they were trained with, so their architecture comes
     from the checkpoint (only the input size follows ``image_size`` or the YAML config); without a
-    checkpoint the YAML config decides. The vanilla baseline uses torchvision's COCO weights unless
-    a checkpoint is given.
+    checkpoint the YAML config decides. The torchvision baselines (Faster R-CNN ResNet50-FPN,
+    MobileNetV3-Large-FPN) use torchvision's COCO weights unless a checkpoint is given: a plain
+    state_dict or ``{"model": state_dict}``.
     """
     from light_rcnn.model.detector import build_detector, light_rcnn_from_config
 
@@ -83,7 +88,7 @@ def load_comparison_model(kind: str, config: dict, weights: str | None = None,
     if kind == "light_rcnn":
         source = checkpoint.get("config") or config
         model = light_rcnn_from_config(dict(source, image_size=size), pretrained=weights is None)
-    elif kind == "faster_rcnn":
+    elif kind in TORCHVISION_BASELINES:
         model = build_detector(kind, pretrained=weights is None, num_classes=config["num_classes"],
                                min_size=size, max_size=size)
     else:

@@ -75,12 +75,13 @@ PRESET_NOTES = {
 }
 
 # Lane colors (light theme, dark theme) from the dataviz reference palette. Each race's three
-# lanes pass validate_palette.js --pairs all in both themes; YOLO26n keeps its color in both races
-# and the improved v2 keeps v2's.
+# lanes pass validate_palette.js --pairs all in both themes (v2/red/aqua sits in the CVD 6-8 band,
+# legal because every lane is labelled); YOLO26n keeps its color in both races and the improved v2
+# keeps v2's. v3 is red, not yellow: the dashboard draws MobileNetV3 Faster R-CNN in yellow.
 BLUE = ("#2a78d6", "#3987e5")
 ORANGE = ("#eb6834", "#d95926")
 AQUA = ("#1baf7a", "#199e70")
-YELLOW = ("#eda100", "#c98500")
+RED = ("#e34948", "#e66767")
 
 
 @dataclass
@@ -132,7 +133,7 @@ def race_lanes(race: str, preset: str = IMPROVEMENT_PRESET) -> list[Lane]:
     """Lanes of a race configuration in display order; ``preset`` is the improved lane's."""
     if race == "models":
         return [Lane("light_rcnn_v2", "light_rcnn_v2", "Lite R-CNN v2", BLUE, MODELS_PRESET),
-                Lane("light_rcnn_v3", "light_rcnn_v3", "Lite R-CNN v3", YELLOW, MODELS_PRESET),
+                Lane("light_rcnn_v3", "light_rcnn_v3", "Lite R-CNN v3", RED, MODELS_PRESET),
                 Lane("yolo26", "yolo26", "YOLO26n", AQUA)]
     if race == "improvement":
         return [Lane("before", "light_rcnn_v2", "Lite R-CNN v2 개선 전", ORANGE, BEFORE_PRESET),

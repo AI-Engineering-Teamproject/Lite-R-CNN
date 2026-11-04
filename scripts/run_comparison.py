@@ -14,8 +14,11 @@ import yaml
 from light_rcnn.reporting import display_path
 
 ROOT = Path(__file__).resolve().parents[1]
-# Run order is fixed (baseline -> student -> control) regardless of the --models order.
-MODELS = {"faster_rcnn": "Faster R-CNN", "light_rcnn": "Light R-CNN", "yolo26": "YOLO26"}
+# Run order is fixed (baselines -> student -> control) regardless of the --models order.
+MODELS = {"faster_rcnn": "Faster R-CNN", "mobilenet_faster_rcnn": "MobileNetV3 Faster R-CNN",
+          "light_rcnn": "Light R-CNN", "yolo26": "YOLO26"}
+# torchvision COCO baselines: optional local checkpoint, else torchvision downloads the weights.
+WEIGHT_FLAGS = {"faster_rcnn": "--faster-weights", "mobilenet_faster_rcnn": "--mobilenet-weights"}
 DEFAULT_CONFIG = "configs/coco.yaml"
 CPU_CONFIG = "configs/coco_cpu.yaml"
 TIMING_KEYS = ("warmup", "iterations", "image_count")
@@ -37,14 +40,15 @@ def project_path(path: str | Path) -> Path:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Evaluate, benchmark and profile Faster R-CNN, Light R-CNN and YOLO26, "
-        "export the charts, then open Streamlit."
+        description="Evaluate, benchmark and profile Faster R-CNN (ResNet50-FPN), MobileNetV3 "
+        "Faster R-CNN, Light R-CNN and YOLO26, export the charts, then open Streamlit."
     )
     parser.add_argument("--config",
                         help=f"Shared data/comparison settings passed to every step "
                              f"(default: {DEFAULT_CONFIG})")
     parser.add_argument("--models", nargs="+", choices=tuple(MODELS), default=list(MODELS),
-                        help="Models to run (default: all); always run Faster -> Light -> YOLO26")
+                        help="Models to run (default: all); always run Faster R-CNN -> MobileNetV3 "
+                             "Faster R-CNN -> Light R-CNN -> YOLO26")
     parser.add_argument("--device", default="cpu",
                         help="PyTorch device; defaults to cpu. On cpu with the default --config, "
                              f"unset timing counts come from {CPU_CONFIG}")
@@ -62,6 +66,9 @@ def main() -> None:
     parser.add_argument("--light-weights", help="Defaults to <train.output_dir>/best.pth")
     parser.add_argument("--faster-weights",
                         help="Local Faster R-CNN checkpoint; omit to download torchvision weights")
+    parser.add_argument("--mobilenet-weights",
+                        help="Local MobileNetV3 Faster R-CNN (fasterrcnn_mobilenet_v3_large_fpn) "
+                             "checkpoint; omit to download torchvision weights")
     parser.add_argument("--train-light", action="store_true",
                         help="Train Light R-CNN before comparing")
     parser.add_argument("--limit", type=int, default=0,
@@ -155,9 +162,12 @@ def main() -> None:
                 f"`python scripts/train.py --config {args.config}`, rerun this command with "
                 "`--train-light`, or skip it with --models."
             )
-    faster_weights = project_path(args.faster_weights) if args.faster_weights else None
-    if "faster_rcnn" in models and faster_weights and not faster_weights.is_file():
-        raise SystemExit(f"Faster R-CNN checkpoint not found: {faster_weights}")
+    weights_by_model = {"light_rcnn": light_weights}
+    for model, value in (("faster_rcnn", args.faster_weights),
+                         ("mobilenet_faster_rcnn", args.mobilenet_weights)):
+        weights_by_model[model] = project_path(value) if value else None
+        if model in models and value and not weights_by_model[model].is_file():
+            raise SystemExit(f"{MODELS[model]} checkpoint not found: {weights_by_model[model]}")
 
     env = os.environ.copy()
     env["YOLO_CONFIG_DIR"] = str(ROOT / "outputs/.ultralytics")
@@ -182,9 +192,9 @@ def main() -> None:
         others = [other for other in models if other != model]
         hint = "Fix the error above"
         hint += f", or skip {MODELS[model]} with --models {' '.join(others)}." if others else "."
-        if model == "faster_rcnn" and faster_weights is None:
+        if model in WEIGHT_FLAGS and weights_by_model[model] is None:
             hint += (" If the torchvision COCO weights could not be downloaded, pass a local "
-                     "checkpoint with --faster-weights.")
+                     f"checkpoint with {WEIGHT_FLAGS[model]}.")
         hint += f"\nReports finished so far are in {display_path(report_dir)}."
 
         if model == "yolo26":
@@ -205,7 +215,7 @@ def main() -> None:
             continue
 
         rcnn = ["--model", model, *common]
-        weights = light_weights if model == "light_rcnn" else faster_weights
+        weights = weights_by_model[model]
         if weights is not None:
             rcnn += ["--weights", str(weights)]
         if not args.inference_only:

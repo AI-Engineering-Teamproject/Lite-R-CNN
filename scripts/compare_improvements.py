@@ -1,4 +1,5 @@
-"""Before/after table of inference presets for Faster R-CNN and Light R-CNN v2/v3 (schema v2).
+"""Before/after table of inference presets for the torchvision Faster R-CNN baselines (ResNet50-FPN
+and MobileNetV3-Large-FPN) and Light R-CNN v2/v3 (schema v2).
 
 Every (model, preset) pair gets a freshly loaded model with the preset applied by
 light_rcnn.inference_opts, then the same three measurements: COCO AP on one seeded subset (batch 1,
@@ -13,9 +14,9 @@ machine drift hits all presets alike. Each preset's p50 change against baseline 
 own window instead (the earlier design), so its deltas absorb whatever the machine did in between.
 
 Light R-CNN v2 and v3 share the report model key 'light_rcnn', so the reports go to one folder per
-version (reports/v2, reports/v3), each with the Faster R-CNN reports as well. The dashboard reads
-one such folder, or reports/ itself through its 'Light R-CNN 체크포인트' selector. Every report of
-one run records the same top-level comparison_run.
+version (reports/v2, reports/v3), each with the reports of both baselines as well. The dashboard
+reads one such folder, or reports/ itself through its 'Light R-CNN 체크포인트' selector. Every
+report of one run records the same top-level comparison_run.
 """
 
 from __future__ import annotations
@@ -83,10 +84,17 @@ from light_rcnn.reporting import (
     write_report,
 )
 
-# --models key -> report model key; always measured in this order.
-MODEL_KINDS = {"faster_rcnn": "faster_rcnn", "v2": "light_rcnn", "v3": "light_rcnn"}
-MODEL_LABELS = {"faster_rcnn": MODELS["faster_rcnn"], "v2": f"{MODELS['light_rcnn']} v2",
-                "v3": f"{MODELS['light_rcnn']} v3"}
+# --models key -> report model key; always measured in this order (the baselines first).
+MODEL_KINDS = {"faster_rcnn": "faster_rcnn", "mobilenet": "mobilenet_faster_rcnn",
+               "v2": "light_rcnn", "v3": "light_rcnn"}
+MODEL_LABELS = {"faster_rcnn": MODELS["faster_rcnn"],
+                "mobilenet": MODELS["mobilenet_faster_rcnn"],
+                "v2": f"{MODELS['light_rcnn']} v2", "v3": f"{MODELS['light_rcnn']} v3"}
+# torchvision COCO baselines: shared by every Light R-CNN version, so their reports are copied into
+# each version's folder; without a local checkpoint a failed weight download skips them.
+BASELINE_TAGS = ("faster_rcnn", "mobilenet")
+WEIGHT_FLAGS = {"faster_rcnn": "--faster-weights", "mobilenet": "--mobilenet-weights"}
+BASELINES_GROUP = "baselines"  # the report folder of both baselines when no Light R-CNN runs
 DEFAULT_PRESETS = "baseline,deploy,fast,accurate"
 DEPLOY_PRESET = "deploy"  # what the team's other latency tables measure (Conv+BN fused)
 # (latency images, warmup, iterations) unless given: 10 passes over 64 images on a GPU.
@@ -117,7 +125,7 @@ STATUS_LABELS = {"skipped": "건너뜀", "failed": "실패"}
 
 
 class WeightsUnavailable(Exception):
-    """The default Faster R-CNN weights could not be downloaded."""
+    """A baseline's default torchvision COCO weights could not be downloaded."""
 
 
 @dataclass
@@ -169,7 +177,8 @@ def build_parser() -> argparse.ArgumentParser:
                              "체크포인트에 저장된 설정을 따름)")
     parser.add_argument("--models", nargs="+", choices=tuple(MODEL_KINDS),
                         default=list(MODEL_KINDS),
-                        help="비교할 모델 (항상 faster_rcnn → v2 → v3 순서로 측정)")
+                        help="비교할 모델 (기본: 전부, 항상 faster_rcnn → mobilenet → v2 → v3 "
+                             "순서로 측정)")
     parser.add_argument("--presets", nargs="+", default=[DEFAULT_PRESETS],
                         help=f"쉼표로 구분한 추론 설정 ({', '.join(PRESETS)}). baseline은 항상 "
                              f"맨 앞에 포함 (기본: {DEFAULT_PRESETS})")
@@ -178,6 +187,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--faster-weights",
                         help="Faster R-CNN 체크포인트. 생략하면 torchvision COCO 가중치를 내려받고, "
                              "내려받지 못하면 Faster R-CNN만 건너뜀")
+    parser.add_argument("--mobilenet-weights",
+                        help="MobileNetV3 Faster R-CNN(torchvision fasterrcnn_mobilenet_v3_large_fpn) "
+                             "체크포인트. 생략하면 torchvision COCO 가중치를 내려받고, 내려받지 "
+                             "못하면 MobileNet만 건너뜀")
     parser.add_argument("--device", help="PyTorch 장치 (기본: config의 device)")
     parser.add_argument("--images", help="평가 이미지 폴더 (기본: config의 val_images)")
     parser.add_argument("--annotations", help="COCO 주석 JSON (기본: config의 val_annotations)")
@@ -229,15 +242,30 @@ def cuda_only(preset: str) -> bool:
     return PRESETS[preset].cuda_graph or PRESETS[preset].fp16
 
 
+def report_groups(tags: list[str]) -> list[str]:
+    """One report folder per Light R-CNN version; without one, the baselines' own folder."""
+    light = [tag for tag in tags if tag not in BASELINE_TAGS]
+    baselines = [tag for tag in tags if tag in BASELINE_TAGS]
+    return light or (baselines if len(baselines) == 1 else [BASELINES_GROUP])
+
+
 def groups_for(tag: str, setup: Setup) -> list[str]:
-    """Report folders of one model: Faster R-CNN goes into every Light R-CNN version's folder."""
-    return setup.groups if tag == "faster_rcnn" else [tag]
+    """Report folders of one model: a baseline goes into every folder of the run (each Light
+    R-CNN version's), a Light R-CNN version into its own."""
+    return setup.groups if tag in BASELINE_TAGS else [tag]
 
 
 def group_label(group: str, tags: list[str]) -> str:
-    if group == "faster_rcnn" or "faster_rcnn" not in tags:
-        return MODEL_LABELS[group]
-    return f"{MODEL_LABELS[group]} · {MODEL_LABELS['faster_rcnn']}"
+    """What one report folder holds: its Light R-CNN version, then the baselines among ``tags``."""
+    own = [group] if group in MODEL_LABELS and group not in BASELINE_TAGS else []
+    return " · ".join(MODEL_LABELS[tag]
+                      for tag in [*own, *(tag for tag in BASELINE_TAGS if tag in tags)])
+
+
+def reported(results: list[dict]) -> list[str]:
+    """The --models keys with a report written (a skipped baseline has none), in run order."""
+    return [tag for tag in MODEL_KINDS
+            if any(result["tag"] == tag and result.get("reports") for result in results)]
 
 
 def latency_sample(dataset: CocoTensorDataset, images_dir: Path, indices: list[int], count: int,
@@ -255,11 +283,12 @@ def build_model(tag: str, setup: Setup) -> torch.nn.Module:
     try:
         return load_comparison_model(MODEL_KINDS[tag], setup.config, weights, setup.image_size)
     except (OSError, RuntimeError) as exc:  # URLError/HTTPError, proxy refusals, bad hash
-        if tag != "faster_rcnn" or weights:
+        if tag not in BASELINE_TAGS or weights:
             raise
         raise WeightsUnavailable(
             f"torchvision COCO 가중치를 내려받지 못했습니다 ({type(exc).__name__}: {exc}). "
-            "--faster-weights <체크포인트>로 로컬 가중치를 지정하면 함께 측정합니다.") from exc
+            f"{WEIGHT_FLAGS[tag]} <체크포인트>로 로컬 가중치를 지정하면 함께 측정합니다."
+        ) from exc
 
 
 def graph_note(status: dict) -> str:
@@ -781,7 +810,8 @@ def protocol_lines(setup: Setup, tags: list[str]) -> list[str]:
              else "각 추론 설정의 값 (기본 0.05 = 모델 기본값, 학습 검증·팀 세 모델 평가와 같음 · "
                   "비교 프로토콜(0.001) 결과와 AP를 섞지 마세요)")
     sync = " · CUDA 동기화 포함" if setup.device.type == "cuda" else ""
-    same = " (Faster R-CNN 포함)" if "faster_rcnn" in tags else ""
+    baselines = [MODEL_LABELS[tag] for tag in BASELINE_TAGS if tag in tags]
+    same = f" ({', '.join(baselines)} 포함)" if baselines else ""
     count = len(setup.latency_images)
     rounds = "" if setup.rounds is None else f" ({setup.rounds}라운드 × {count}장)"
     latency = (f"지연 시간: 평가 이미지 중 seed {setup.seed}로 고른 {count}장 · "
@@ -885,7 +915,7 @@ def write_summary(setup: Setup, presets: list[str], results: list[dict], tags: l
             lines.append(f"- `{display_path(combined)}`: 전체 "
                          f"({', '.join(MODEL_LABELS[group] for group in folders)} — 사이드바 "
                          "'Light R-CNN 체크포인트'에서 버전을 고름)")
-        lines += [*(f"- `{display_path(folder)}`: {group_label(group, tags)}"
+        lines += [*(f"- `{display_path(folder)}`: {group_label(group, reported(results))}"
                     for group, folder in folders.items()),
                   "", "예:", "",
                   (f"- Windows 명령 프롬프트(cmd): `set LIGHT_RCNN_RESULTS_DIR={example}` 다음 줄에 "
@@ -898,21 +928,22 @@ def write_summary(setup: Setup, presets: list[str], results: list[dict], tags: l
 
 
 def report_folders(setup: Setup) -> dict[str, Path]:
-    """The report folders written so far, one per Light R-CNN version (or Faster R-CNN alone)."""
+    """The report folders written so far, one per Light R-CNN version (or the baselines' own)."""
     folders = {group: setup.output_dir / "reports" / group for group in setup.groups}
     return {group: folder for group, folder in folders.items() if folder.is_dir()}
 
 
-def write_figures(setup: Setup, presets: list[str], rows: list[dict], tags: list[str]
+def write_figures(setup: Setup, presets: list[str], rows: list[dict], reported_tags: list[str]
                   ) -> list[Path]:
-    """One HTML page per report folder with a before/after chart per preset (PNG if kaleido works)."""
+    """One HTML page per report folder with a before/after chart per preset (PNG if kaleido works).
+    ``reported_tags`` (see reported) names the folders' models in the page titles."""
     figure = getattr(viz, "improvement_figure", None)
     if figure is None or len(presets) < 2:
         return []
     figures_dir = setup.output_dir / "figures"
     written, images_ok = [], True
     for group, baseline, selections in group_selections(setup, presets):
-        label = group_label(group, tags)
+        label = group_label(group, reported_tags)
         figures = {}
         for preset in presets[1:]:
             selected = selections[preset]
@@ -922,12 +953,12 @@ def write_figures(setup: Setup, presets: list[str], rows: list[dict], tags: list
                          ap_metric="AP_50_95", percentile="p50")
             if viz.is_empty(fig):
                 continue
-            fig.update_layout(title_text=f"<b>개선 전/후 비교 · {MODEL_LABELS[group]} · "
+            fig.update_layout(title_text=f"<b>개선 전/후 비교 · {MODEL_LABELS.get(group, label)} · "
                                          f"{preset_label(preset, setup.score_thresh)}</b>")
             figures[f"improvement_{group}_{preset}"] = fig
         if not figures:
             continue
-        members = {"faster_rcnn", group}
+        members = {*BASELINE_TAGS, group}
         chosen = [row for row in rows if row["status"] == "ok" and row["model"] in members]
         table = [dict(zip(TABLE_HEADER, table_cells(row))) for row in chosen]
         cautions = [ComparisonWarning("warning", f"{row['model_label']} · {row['preset_label']}: "
@@ -976,7 +1007,8 @@ def main(argv: list[str] | None = None) -> int:
     missing = [str(path) for path in (images_dir, annotations) if not path.exists()]
     if missing:
         raise SystemExit("COCO 평가 데이터가 없습니다:\n  - " + "\n  - ".join(missing))
-    weights = {"faster_rcnn": args.faster_weights, "v2": args.v2_weights, "v3": args.v3_weights}
+    weights = {"faster_rcnn": args.faster_weights, "mobilenet": args.mobilenet_weights,
+               "v2": args.v2_weights, "v3": args.v3_weights}
     for tag in tags:
         if weights[tag] and not Path(weights[tag]).is_file():
             raise SystemExit(f"{MODEL_LABELS[tag]} 체크포인트가 없습니다: {weights[tag]}")
@@ -1009,7 +1041,6 @@ def main(argv: list[str] | None = None) -> int:
               "새 결과로 덮어쓰지만 다른 보고서는 남으니 새 폴더를 쓰는 편이 안전합니다.",
               file=sys.stderr, flush=True)
     output_dir.mkdir(parents=True, exist_ok=True)
-    light = [tag for tag in tags if tag != "faster_rcnn"]
     setup = Setup(
         config=config, config_path=config_path, device=device,
         image_size=int(config["image_size"]), seed=seed, weights=weights,
@@ -1018,7 +1049,7 @@ def main(argv: list[str] | None = None) -> int:
         latency_images=latency_images, warmup=max(warmup, len(latency_images)),
         iterations=iterations if rounds is None else rounds * len(latency_images),
         score_thresh=args.score_thresh, output_dir=output_dir,
-        groups=light or ["faster_rcnn"], environment=collect_environment(str(device)),
+        groups=report_groups(tags), environment=collect_environment(str(device)),
         rounds=rounds,
         # Unique per run: a rerun into the same folder must not pass for the same comparison.
         comparison_run=f"{output_dir.resolve().name}-{uuid.uuid4().hex[:8]}")
@@ -1096,7 +1127,7 @@ def main(argv: list[str] | None = None) -> int:
             write_summary(setup, presets, results, tags)
 
     rows = write_summary(setup, presets, results, tags)
-    figures = write_figures(setup, presets, rows, tags)
+    figures = write_figures(setup, presets, rows, reported(results))
     measured = [row for row in rows if row["status"] == "ok"]
     print("\n=== 개선 전/후 비교 결과 ===")
     if measured:
@@ -1111,7 +1142,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"그래프: {display_path(path)}")
     folders = report_folders(setup)
     for group, folder in folders.items():
-        print(f"대시보드 결과 폴더 ({group_label(group, tags)}): {display_path(folder)}")
+        print(f"대시보드 결과 폴더 ({group_label(group, reported(results))}): "
+              f"{display_path(folder)}")
     if len(folders) > 1:
         print(f"대시보드 결과 폴더 (전체, 'Light R-CNN 체크포인트'에서 버전 선택): "
               f"{display_path(output_dir / 'reports')}")

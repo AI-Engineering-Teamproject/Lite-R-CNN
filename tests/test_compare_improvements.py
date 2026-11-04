@@ -14,7 +14,10 @@ import pytest
 import torch
 import yaml
 from PIL import Image
-from torchvision.models.detection import fasterrcnn_mobilenet_v3_large_320_fpn
+from torchvision.models.detection import (
+    fasterrcnn_mobilenet_v3_large_320_fpn,
+    fasterrcnn_mobilenet_v3_large_fpn,
+)
 
 from light_rcnn.inference_opts import PRESET_LABELS
 from light_rcnn.model.detector import light_rcnn_from_config
@@ -105,6 +108,28 @@ def weights(tmp_path_factory):
         "v3": tiny_checkpoint(root / "v3.pth", "configs/coco_v3.yaml", fpn_channels=32,
                               roi_channels=16, roi_head_dim=64),
     }
+
+
+@pytest.fixture(scope="module")
+def mobilenet_checkpoint(tmp_path_factory):
+    """torchvision's MobileNetV3-Large-FPN Faster R-CNN with random weights (weights=None,
+    weights_backbone=None: nothing downloaded) saved as a local checkpoint for the real loader;
+    its box predictor calls every box 'person' (~0.99), so NMS has work."""
+    torch.manual_seed(0)
+    model = fasterrcnn_mobilenet_v3_large_fpn(weights=None, weights_backbone=None, num_classes=91)
+    with torch.no_grad():
+        model.roi_heads.box_predictor.cls_score.bias[1] = 6.0
+    path = tmp_path_factory.mktemp("mobilenet") / "mobilenet.pth"
+    torch.save({"model": model.state_dict()}, path)
+    return path
+
+
+def small_baseline(image_size: int) -> torch.nn.Module:
+    """A torchvision Faster R-CNN small enough to stand in for a baseline in a unit test."""
+    torch.manual_seed(0)
+    return fasterrcnn_mobilenet_v3_large_320_fpn(weights=None, weights_backbone=None,
+                                                 num_classes=91, min_size=image_size,
+                                                 max_size=image_size)
 
 
 @pytest.fixture
@@ -245,21 +270,24 @@ def test_cpu_run_writes_reports_summary_and_charts_the_dashboard_reads(run, scri
                                for preset in ("fast", "accurate")]
 
 
-def test_faster_rcnn_without_downloadable_weights_is_skipped(run, script, monkeypatch, capsys):
+def test_baselines_without_downloadable_weights_are_skipped(run, script, monkeypatch, capsys):
     real, attempts = script.load_comparison_model, []
 
     def offline(kind, config, weights=None, image_size=None):
-        if kind == "faster_rcnn" and weights is None:
+        if kind in ("faster_rcnn", "mobilenet_faster_rcnn") and weights is None:
             attempts.append(kind)
             raise URLError("Tunnel connection failed: 403 Forbidden")
         return real(kind, config, weights, image_size)
 
     monkeypatch.setattr(script, "load_comparison_model", offline)
-    code, output = run("--models", "faster_rcnn", "v2", "--presets", "fast", "--limit", 2,
-                       "--score-thresh", 0.3)
-    assert code == 0 and attempts == ["faster_rcnn"]  # tried once, not once per preset
+    code, output = run("--models", "mobilenet", "faster_rcnn", "v2", "--presets", "fast",
+                       "--limit", 2, "--score-thresh", 0.3)
+    # Each baseline tried once, not once per preset, in the fixed order.
+    assert code == 0 and attempts == ["faster_rcnn", "mobilenet_faster_rcnn"]
     out = capsys.readouterr().out
     assert "torchvision COCO 가중치를 내려받지 못했습니다" in out and "--faster-weights" in out
+    assert ("[건너뜀] MobileNetV3 Faster R-CNN: torchvision COCO 가중치를 내려받지 못했습니다" in out
+            and "--mobilenet-weights <체크포인트>로 로컬 가중치를 지정하면 함께 측정합니다" in out)
     folder = output / "reports" / "v2"
     assert sorted(path.name for path in folder.iterdir()) == sorted(
         f"light_rcnn_{kind}_{preset}.json" for kind in ("accuracy", "latency")
@@ -272,8 +300,15 @@ def test_faster_rcnn_without_downloadable_weights_is_skipped(run, script, monkey
     assert report["variant"] == "fast" and report["variant_label"] == "빠른 설정 · 점수 하한 0.3"
     rows = read_csv(output / "summary.csv")
     assert [(row["model"], row["status"]) for row in rows] == [
-        ("faster_rcnn", "skipped"), ("faster_rcnn", "skipped"), ("v2", "ok"), ("v2", "ok")]
-    assert "건너뜀 — torchvision COCO 가중치를" in (output / "summary.md").read_text("utf-8")
+        ("faster_rcnn", "skipped"), ("faster_rcnn", "skipped"), ("mobilenet", "skipped"),
+        ("mobilenet", "skipped"), ("v2", "ok"), ("v2", "ok")]
+    assert "--mobilenet-weights" in rows[2]["note"] and "--faster-weights" in rows[0]["note"]
+    summary = (output / "summary.md").read_text("utf-8")
+    assert "- MobileNetV3 Faster R-CNN · 개선 전 (기본 설정) · 점수 하한 0.3 (`baseline`): 건너뜀 — " \
+           "torchvision COCO 가중치를" in summary
+    # The folder holds no baseline report, so its label names Light R-CNN v2 alone.
+    assert f"- `{display_path(folder)}`: Light R-CNN v2\n" in summary
+    assert f"대시보드 결과 폴더 (Light R-CNN v2): {display_path(folder)}" in out
 
 
 def test_nothing_measured_exits_with_an_error(run, script, monkeypatch, capsys):
@@ -737,6 +772,120 @@ def test_faster_rcnn_gets_the_same_options_and_joins_every_version_folder(run, s
     assert "Light R-CNN v3 · Vanilla Faster R-CNN" in page
 
 
+def test_mobilenet_baseline_loads_its_checkpoint_and_joins_every_version_folder(
+        run, script, monkeypatch, tmp_path, mobilenet_checkpoint, capsys):
+    """Both baselines with one preset set: the MobileNet goes through the real loader."""
+    real, kinds = script.load_comparison_model, []
+    faster_checkpoint = tmp_path / "faster.pth"
+    faster_checkpoint.write_bytes(b"stand-in")
+
+    def loader(kind, config, weights=None, image_size=None):
+        kinds.append(kind)
+        if kind == "faster_rcnn":  # the ResNet-50 model would be slow; any torchvision R-CNN does
+            return small_baseline(image_size)
+        return real(kind, config, weights, image_size)
+
+    monkeypatch.setattr(script, "load_comparison_model", loader)
+    code, output = run("--models", "v3", "mobilenet", "faster_rcnn", "v2", "--presets", "fast",
+                       "--limit", 2, "--iterations", 2, "--faster-weights", faster_checkpoint,
+                       "--mobilenet-weights", mobilenet_checkpoint)
+    assert code == 0
+    # Baselines first, every preset on a freshly loaded model.
+    assert kinds == ["faster_rcnn"] * 2 + ["mobilenet_faster_rcnn"] * 2 + ["light_rcnn"] * 4
+    for preset in ("baseline", "fast"):
+        for kind in ("accuracy", "latency"):
+            name = f"mobilenet_faster_rcnn_{kind}_{preset}.json"
+            copies = [read_json(output / "reports" / version / name) for version in ("v2", "v3")]
+            assert copies[0] == copies[1]
+            report = copies[0]
+            assert (report["model"], report["model_name"]) == ("mobilenet_faster_rcnn",
+                                                               "MobileNetV3 Faster R-CNN")
+            assert (report["model_tag"], report["model_label"]) == ("mobilenet",
+                                                                    "MobileNetV3 Faster R-CNN")
+            assert report["weights"] == display_path(mobilenet_checkpoint)
+            assert report["weights_sha256"] == file_sha256(mobilenet_checkpoint)
+        records = {model: read_json(output / f"reports/v2/{model}_latency_{preset}.json")[
+            "inference_options"] for model in ("faster_rcnn", "mobilenet_faster_rcnn",
+                                               "light_rcnn")}
+        # One preset, applied alike to every model.
+        assert len({json.dumps(record["options"], sort_keys=True)
+                    for record in records.values()}) == 1
+        applied = records["mobilenet_faster_rcnn"]["applied"]
+        assert applied["conv_bn_fused"] is (preset == "fast")  # its BatchNorm2d folded
+        assert applied["rpn_pre_nms_top_n_test"] == (500 if preset == "fast" else 1000)
+        # torchvision defaults that stay as they are and are recorded.
+        assert (applied["rpn_post_nms_top_n_test"], applied["rpn_score_thresh"]) == (1000, 0.05)
+        accuracy = read_json(output / f"reports/v2/mobilenet_faster_rcnn_accuracy_{preset}.json")
+        assert accuracy["accuracy"]["detections"] > 0  # the checkpoint's 'person' bias
+    for version in ("v2", "v3"):
+        assert_dashboard_ready(output / "reports" / version, ["baseline", "fast"],
+                               {"faster_rcnn", "mobilenet_faster_rcnn", "light_rcnn"})
+    assert len({read_json(path)["comparison_run"] for path in output.rglob("*.json")}) == 1
+    rows = read_csv(output / "summary.csv")
+    assert [(row["model"], row["preset"], row["status"]) for row in rows] == [
+        (model, preset, "ok") for model in ("faster_rcnn", "mobilenet", "v2", "v3")
+        for preset in ("baseline", "fast")]
+    mobilenet = rows[2]
+    assert mobilenet["model_label"] == "MobileNetV3 Faster R-CNN"
+    # The full model, not the 320 px one (BatchNorm2d weights counted in a random build).
+    assert float(mobilenet["parameters_m"]) == pytest.approx(19.41, abs=0.01)
+    assert rows[3]["delta_ap_pp"] and rows[3]["delta_p50_pct"]
+    summary = (output / "summary.md").read_text(encoding="utf-8")
+    assert "같은 옵션을 적용합니다 (Vanilla Faster R-CNN, MobileNetV3 Faster R-CNN 포함)." in summary
+    assert "| MobileNetV3 Faster R-CNN | 개선 전 (기본 설정) (baseline) |" in summary
+    label = "Light R-CNN v3 · Vanilla Faster R-CNN · MobileNetV3 Faster R-CNN"
+    assert f"`{display_path(output / 'reports/v3')}`: {label}" in summary
+    assert label in (output / "figures/improvement_v3.html").read_text(encoding="utf-8")
+    assert "모델: Vanilla Faster R-CNN, MobileNetV3 Faster R-CNN, Light R-CNN v2, Light R-CNN v3" in (
+        capsys.readouterr().out)
+
+
+def test_baselines_join_every_folder_and_share_one_without_light_rcnn(script):
+    groups = script.report_groups
+    assert groups(["faster_rcnn", "mobilenet", "v2", "v3"]) == ["v2", "v3"]
+    assert groups(["mobilenet", "v3"]) == ["v3"]
+    assert groups(["faster_rcnn"]) == ["faster_rcnn"] and groups(["mobilenet"]) == ["mobilenet"]
+    assert groups(["faster_rcnn", "mobilenet"]) == ["baselines"]
+    label = script.group_label
+    assert label("v2", ["faster_rcnn", "mobilenet", "v2"]) == (
+        "Light R-CNN v2 · Vanilla Faster R-CNN · MobileNetV3 Faster R-CNN")
+    assert label("v2", ["mobilenet", "v2"]) == "Light R-CNN v2 · MobileNetV3 Faster R-CNN"
+    assert label("v3", ["v3"]) == "Light R-CNN v3"
+    assert label("baselines", ["faster_rcnn", "mobilenet"]) == (
+        "Vanilla Faster R-CNN · MobileNetV3 Faster R-CNN")
+    assert label("mobilenet", ["mobilenet"]) == "MobileNetV3 Faster R-CNN"
+    # Measured order: the baselines first, whatever --models says; the default is all four.
+    args = script.build_parser().parse_args([])
+    assert args.models == list(script.MODEL_KINDS) == ["faster_rcnn", "mobilenet", "v2", "v3"]
+    assert script.MODEL_KINDS["mobilenet"] == "mobilenet_faster_rcnn"
+    assert args.mobilenet_weights is None
+
+
+def test_a_baselines_only_run_writes_one_folder_with_both(run, script, monkeypatch, tmp_path):
+    def loader(kind, config, weights=None, image_size=None):
+        assert kind in ("faster_rcnn", "mobilenet_faster_rcnn") and weights
+        return small_baseline(image_size)
+
+    monkeypatch.setattr(script, "load_comparison_model", loader)
+    stand_in = tmp_path / "stand_in.pth"
+    stand_in.write_bytes(b"stand-in")
+    code, output = run("--models", "mobilenet", "faster_rcnn", "--presets", "deploy", "--limit", 1,
+                       "--latency-images", 1, "--iterations", 2, "--faster-weights", stand_in,
+                       "--mobilenet-weights", stand_in)
+    assert code == 0
+    assert sorted(path.name for path in (output / "reports").iterdir()) == ["baselines"]
+    assert sorted(path.name for path in (output / "reports/baselines").iterdir()) == sorted(
+        f"{model}_{kind}_{preset}.json" for model in ("faster_rcnn", "mobilenet_faster_rcnn")
+        for kind in ("accuracy", "latency") for preset in ("baseline", "deploy"))
+    assert_dashboard_ready(output / "reports/baselines", ["baseline", "deploy"],
+                           {"faster_rcnn", "mobilenet_faster_rcnn"})
+    summary = (output / "summary.md").read_text(encoding="utf-8")
+    assert (f"- `{display_path(output / 'reports/baselines')}`: Vanilla Faster R-CNN · "
+            "MobileNetV3 Faster R-CNN") in summary
+    page = (output / "figures/improvement_baselines.html").read_text(encoding="utf-8")
+    assert "개선 전/후 비교 — Vanilla Faster R-CNN · MobileNetV3 Faster R-CNN" in page
+
+
 def test_deltas_compare_each_model_with_its_own_baseline(script):
     def measured(tag, preset, ap, p50, **paired):
         return {"tag": tag, "preset": preset, "label": PRESET_LABELS[preset], "status": "ok",
@@ -824,6 +973,10 @@ def test_missing_inputs_stop_before_measuring(script, coco, tmp_path):
         script.main([*common, "--images", str(coco["images"]), "--annotations",
                      str(coco["annotations"]), "--models", "v3", "--v3-weights",
                      str(tmp_path / "missing.pth")])
+    with pytest.raises(SystemExit, match="MobileNetV3 Faster R-CNN 체크포인트가 없습니다"):
+        script.main([*common, "--images", str(coco["images"]), "--annotations",
+                     str(coco["annotations"]), "--models", "mobilenet", "--mobilenet-weights",
+                     str(tmp_path / "missing.pth")])
 
 
 def test_runs_without_editable_install(tmp_path):
@@ -833,3 +986,5 @@ def test_runs_without_editable_install(tmp_path):
     )
     assert result.returncode == 0, result.stderr
     assert "--presets" in result.stdout and "--faster-weights" in result.stdout
+    text = " ".join(result.stdout.split())  # help lines wrap at the terminal width
+    assert "--mobilenet-weights" in text and "faster_rcnn → mobilenet → v2 → v3" in text

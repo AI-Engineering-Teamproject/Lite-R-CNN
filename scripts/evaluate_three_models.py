@@ -1,4 +1,5 @@
-"""Evaluate Faster R-CNN, Lite R-CNN v2 and v3 on one shared COCO subset."""
+"""Evaluate Faster R-CNN, Lite R-CNN v2 and v3 on one shared COCO subset (--with-mobilenet adds
+torchvision's MobileNetV3-Large-FPN Faster R-CNN as a fourth model under the same protocol)."""
 
 from __future__ import annotations
 
@@ -27,9 +28,14 @@ from light_rcnn.reporting import collect_environment, dataset_info, git_commit, 
 
 ROOT = Path(__file__).resolve().parents[1]
 FASTER_RCNN = "Faster R-CNN"
+MOBILENET = "MobileNetV3 Faster R-CNN"  # torchvision fasterrcnn_mobilenet_v3_large_fpn, COCO_V1
 MODELS = (FASTER_RCNN, "Lite R-CNN v2", "Lite R-CNN v3")
+# With --with-mobilenet: the torchvision baselines first, as in every other comparison script.
+MODELS_WITH_MOBILENET = (FASTER_RCNN, MOBILENET, "Lite R-CNN v2", "Lite R-CNN v3")
+# light_rcnn.bench.load_comparison_model kind of each model (Lite R-CNN otherwise).
+KINDS = {FASTER_RCNN: "faster_rcnn", MOBILENET: "mobilenet_faster_rcnn"}
 # Test-time RPN proposals of every model for AP, proposal recall, stage times, FLOPs and the main
-# latency (Lite R-CNN's trained budget; Faster R-CNN's own default of 1000 is overridden).
+# latency (Lite R-CNN's trained budget; the torchvision baselines' default of 1000 is overridden).
 PROPOSALS = 300
 LATENCY_PROPOSALS = (PROPOSALS, 100)
 # Report column -> light_rcnn.coco_eval stat.
@@ -59,6 +65,43 @@ REPORT_NOTES = (
     ("최대 VRAM은 검증 추론(배치 1) 동안의 최대 할당량으로, 지연 시간 측정용 이미지를 장치에 올리기 전에 "
      "읽습니다."),
 )
+# The "checkpoint" of a torchvision baseline run without a local state dict.
+TORCHVISION_WEIGHTS = "torchvision COCO_V1"
+# REPORT.md title word for the number of models evaluated (two with --skip-faster-rcnn alone).
+MODEL_COUNT_WORDS = {2: "Two", 3: "Three", 4: "Four"}
+
+
+def mobilenet_note(checkpoint: str) -> str:
+    """REPORT.md note on the MobileNetV3 Faster R-CNN row; ``checkpoint`` is that row's weights,
+    torchvision's COCO_V1 download or the --mobilenet-weights file."""
+    if checkpoint == TORCHVISION_WEIGHTS:
+        weights = "COCO_V1, torchvision 기준 800px에서 box AP 32.8"
+        caveat = " (입력이 800px보다 작으면 AP가 32.8보다 낮게 나올 수 있음)"
+    else:
+        weights, caveat = f"로컬 가중치 {checkpoint}", ""
+    return (
+        f"{MOBILENET}: torchvision fasterrcnn_mobilenet_v3_large_fpn({weights})을 다른 모델과 같은 입력 "
+        f"크기, RPN 제안 {PROPOSALS}개, Conv+BN 융합 설정(--fuse/--no-fuse)으로 잽니다{caveat}. 앵커와 RPN "
+        "객체성 점수 하한(0.05) 등 그 밖의 torchvision 기본값은 그대로 두고 evaluation.json의 rpn_settings에 "
+        "기록합니다. Lite R-CNN과 같은 MobileNetV3-Large 계열 백본을 쓰는 기존 경량 Faster R-CNN이라 Lite "
+        "R-CNN의 위치를 보여 주는 비교군이며, BiFPN만의 효과를 가르는 ablation은 아닙니다."
+    )
+
+
+def offline_hint(name: str, with_mobilenet: bool = False) -> str:
+    """What to do when a torchvision baseline's COCO weights cannot be downloaded."""
+    if name == FASTER_RCNN:
+        others = f"{MOBILENET}과 Lite R-CNN v2/v3" if with_mobilenet else "Lite R-CNN v2/v3"
+        hint = ("인터넷 연결을 확인하거나 --faster-weights <state_dict.pth>로 로컬 가중치를 지정하세요. "
+                f"Faster R-CNN 없이 {others}만 평가하려면 --skip-faster-rcnn을 붙이세요.")
+        if with_mobilenet:  # its COCO weights come from the same server
+            hint += (f" {MOBILENET}도 COCO 가중치를 같은 곳에서 내려받으므로, 인터넷이 막혀 있으면 "
+                     "--mobilenet-weights <state_dict.pth>를 함께 주거나 --with-mobilenet을 빼세요.")
+        return hint
+    if name == MOBILENET:
+        return ("인터넷 연결을 확인하거나 --mobilenet-weights <state_dict.pth>로 로컬 가중치를 지정하세요. "
+                f"{MOBILENET} 없이 평가하려면 --with-mobilenet을 빼세요.")
+    return "인터넷 연결을 확인하세요."
 
 
 def load_yaml(path: Path) -> dict:
@@ -67,18 +110,17 @@ def load_yaml(path: Path) -> dict:
 
 
 def build_model(name: str, weight_path: Path | None, config_path: Path, device: torch.device,
-                image_size: int) -> torch.nn.Module:
-    """A Lite R-CNN checkpoint's own config decides its architecture; Faster R-CNN uses
-    torchvision's COCO weights unless a state dict is given."""
-    kind = "faster_rcnn" if name == FASTER_RCNN else "light_rcnn"
+                image_size: int, with_mobilenet: bool = False) -> torch.nn.Module:
+    """A Lite R-CNN checkpoint's own config decides its architecture; the torchvision baselines
+    (Faster R-CNN, MobileNetV3 Faster R-CNN) use COCO weights unless a state dict is given."""
+    kind = KINDS.get(name, "light_rcnn")
     weights = str(weight_path) if weight_path is not None else None
     try:
         model = load_comparison_model(kind, load_yaml(config_path), weights, image_size)
     except URLError as exc:
         raise SystemExit(
             f"{name} 기본 가중치(torchvision COCO_V1)를 내려받지 못했습니다: {exc}\n"
-            "인터넷 연결을 확인하거나 --faster-weights <state_dict.pth>로 로컬 가중치를 지정하세요. "
-            "Faster R-CNN 없이 Lite R-CNN v2/v3만 평가하려면 --skip-faster-rcnn을 붙이세요."
+            + offline_hint(name, with_mobilenet)
         ) from exc
     return model.to(device).eval()
 
@@ -150,6 +192,24 @@ def set_rpn_limit(model, value: int) -> None:
     limits = get_rpn_limit(model)
     if limits is not None:
         limits["testing"] = value
+
+
+def rpn_settings(model) -> dict:
+    """RPN settings each model keeps at its own value, for evaluation.json only (CSV columns stay):
+    e.g. the MobileNetV3 Faster R-CNN's torchvision objectness floor of 0.05."""
+    rpn = getattr(model, "rpn", None)
+    anchors = getattr(rpn, "anchor_generator", None)
+
+    def number(name: str) -> float | None:
+        value = getattr(rpn, name, None)
+        return None if value is None else float(value)
+
+    def levels(name: str) -> list | None:
+        value = getattr(anchors, name, None)
+        return None if value is None else [[float(item) for item in level] for level in value]
+
+    return {"score_thresh": number("score_thresh"), "nms_thresh": number("nms_thresh"),
+            "anchor_sizes": levels("sizes"), "aspect_ratios": levels("aspect_ratios")}
 
 
 def stage_profile(model, image: torch.Tensor, device: torch.device, repeats: int = 5) -> dict:
@@ -258,7 +318,7 @@ def estimate_flops(model, image: torch.Tensor, device: torch.device) -> dict:
 def evaluate_one(name: str, weight_path: Path | None, config_path: Path, dataset,
                  indices: list[int], timing_indices: list[int], warmup: int,
                  device: torch.device, args) -> dict:
-    model = build_model(name, weight_path, config_path, device, args.image_size)
+    model = build_model(name, weight_path, config_path, device, args.image_size, args.with_mobilenet)
     total_params, trainable_params = count_params(model)  # as trained, before Conv+BN folding
     native_proposals = (get_rpn_limit(model) or {}).get("testing")
     set_rpn_limit(model, PROPOSALS)  # score AP with the proposal budget latency is timed at
@@ -325,7 +385,7 @@ def evaluate_one(name: str, weight_path: Path | None, config_path: Path, dataset
     stages = stage_profile(model, timing_images[0], device, repeats=max(3, args.stage_repeats))
     flops = estimate_flops(model, timing_images[0], device)
     return {
-        "model": name, "checkpoint": str(weight_path) if weight_path else "torchvision COCO_V1",
+        "model": name, "checkpoint": str(weight_path) if weight_path else TORCHVISION_WEIGHTS,
         "images_evaluated": len(indices), "image_size": args.image_size,
         **metrics, "Precision_IoU50_score0.5": precision, "Recall_IoU50_score0.5": recall,
         "precision_recall_definition": "global detection counts; score >= 0.5; class-aware greedy IoU >= 0.5",
@@ -365,6 +425,7 @@ def evaluate_one(name: str, weight_path: Path | None, config_path: Path, dataset
         "rpn_pre_nms_top_n_test": (get_rpn_limit(model, "pre") or {}).get("testing"),
         "rpn_post_nms_top_n_test": (get_rpn_limit(model) or {}).get("testing"),
         "rpn_post_nms_top_n_native": native_proposals,
+        "rpn_settings": rpn_settings(model),
         "box_score_thresh": float(model.roi_heads.score_thresh),
         "detections_per_img": int(model.roi_heads.detections_per_img),
         "conv_bn_fused": fused_layers > 0 and not norms_left,
@@ -398,7 +459,18 @@ def fmt(value, spec: str = ".4f") -> str:
 
 def report_markdown(results: list[dict], metadata: dict) -> str:
     timing, iterations = metadata["latency_timing_images"], metadata["latency_iterations"]
-    lines = ["# Three-model detection evaluation", "",
+    # Title and notes follow the models that ran (--skip-faster-rcnn, --with-mobilenet).
+    title = MODEL_COUNT_WORDS.get(len(results), str(len(results)))
+    mobilenet = next((row for row in results if row["model"] == MOBILENET), None)
+    baselines = [row["model"] for row in results if row["model"] in KINDS]
+    if len(baselines) > 1:
+        no_bifpn = (f"{' and '.join(baselines)} have no BiFPN module (their backbone time includes "
+                    "the FPN); their BiFPN latency is null. ")
+    elif baselines:
+        no_bifpn = f"{baselines[0]} has no BiFPN module; its BiFPN latency is null. "
+    else:
+        no_bifpn = ""
+    lines = [f"# {title}-model detection evaluation", "",
              f"- Images: {metadata['images_evaluated']} shared validation images (seed {metadata['seed']})",
              f"- Device: {metadata['device']}; image size: {metadata['image_size']}; batch size: 1",
              (f"- 지연 시간: 평가 이미지 중 시드 {metadata['seed']}로 고른 {timing}장, "
@@ -426,9 +498,11 @@ def report_markdown(results: list[dict], metadata: dict) -> str:
         lines.append("| " + " | ".join(cells) + " |")
     lines.extend(["", "* FLOPs sums operators counted by PyTorch profiler; ROIAlign, NMS and other unsupported ops can be omitted.",
                   "Precision/Recall use score >= 0.5 and class-aware IoU >= 0.5. AP is COCO AP@[.50:.95] and equals mAP_50_95.",
-                  "Faster R-CNN has no BiFPN module; its BiFPN latency is null. VRAM is peak allocated CUDA memory.",
+                  f"{no_bifpn}VRAM is peak allocated CUDA memory.",
                   "See evaluation.json and summary.csv for stage times, proposal recall, AR@100, speedup and AP deltas.",
                   "", *(f"- {note}" for note in REPORT_NOTES)])
+    if mobilenet is not None:
+        lines.append(f"- {mobilenet_note(mobilenet['checkpoint'])}")
     if metadata["skipped_models"]:
         lines.append(f"- 제외한 모델: {', '.join(metadata['skipped_models'])} (--skip-faster-rcnn). "
                      "Faster R-CNN 대비 속도 향상과 AP 차이는 비어 있습니다.")
@@ -464,8 +538,17 @@ def build_parser(description: str | None = __doc__, device: str = "cpu",
     parser.add_argument("--v3-config", default="configs/coco_v3.yaml")
     parser.add_argument("--faster-weights", help="Optional Faster R-CNN state dict; default torchvision COCO_V1")
     parser.add_argument("--skip-faster-rcnn", action="store_true",
-                        help="Evaluate only Lite R-CNN v2/v3, e.g. offline where the torchvision "
-                             "COCO weights cannot be downloaded (speedup and AP delta stay empty)")
+                        help="Leave Faster R-CNN out and evaluate only Lite R-CNN v2/v3 (and "
+                             "MobileNetV3 Faster R-CNN with --with-mobilenet), e.g. offline where "
+                             "the torchvision COCO weights cannot be downloaded (speedup and AP "
+                             "delta stay empty)")
+    parser.add_argument("--with-mobilenet", action="store_true",
+                        help="Also evaluate torchvision's Faster R-CNN MobileNetV3-Large-FPN "
+                             "(COCO_V1, not the 320 model) as a fourth model with the same protocol "
+                             "(default: off, the three models only)")
+    parser.add_argument("--mobilenet-config", default="configs/coco.yaml")
+    parser.add_argument("--mobilenet-weights",
+                        help="Optional MobileNetV3 Faster R-CNN state dict; default torchvision COCO_V1")
     parser.add_argument("--v2-weights", default="outputs/coco_4090_v2/best.pth")
     parser.add_argument("--v3-weights", default="outputs/coco_4090_v3/best.pth")
     parser.add_argument("--fuse", action=argparse.BooleanOptionalAction, default=True,
@@ -510,13 +593,15 @@ def main(argv: list[str] | None = None, parser: argparse.ArgumentParser | None =
     timing_order = torch.randperm(len(indices), generator=torch.Generator().manual_seed(args.seed))
     timing_indices = [indices[k] for k in timing_order[:args.timing_images].tolist()]
     warmup = max(args.warmup, len(timing_indices))
-    names = [name for name in MODELS if not (args.skip_faster_rcnn and name == FASTER_RCNN)]
+    requested = MODELS_WITH_MOBILENET if args.with_mobilenet else MODELS
+    names = [name for name in requested if not (args.skip_faster_rcnn and name == FASTER_RCNN)]
     weights = {
         FASTER_RCNN: Path(args.faster_weights).resolve() if args.faster_weights else None,
+        MOBILENET: Path(args.mobilenet_weights).resolve() if args.mobilenet_weights else None,
         "Lite R-CNN v2": (ROOT / args.v2_weights).resolve(),
         "Lite R-CNN v3": (ROOT / args.v3_weights).resolve(),
     }
-    configs = {FASTER_RCNN: ROOT / args.faster_config,
+    configs = {FASTER_RCNN: ROOT / args.faster_config, MOBILENET: ROOT / args.mobilenet_config,
                "Lite R-CNN v2": ROOT / args.v2_config, "Lite R-CNN v3": ROOT / args.v3_config}
     for name in names:
         if weights[name] is not None and not weights[name].is_file():
@@ -534,19 +619,30 @@ def main(argv: list[str] | None = None, parser: argparse.ArgumentParser | None =
                 "latency_percentile_method": "linear interpolation (numpy default)",
                 "rpn_post_nms_top_n_test": PROPOSALS,
                 "proposal_recall_frame": "original_image",
-                "fuse_conv_bn": args.fuse,
-                "models": names, "skipped_models": [name for name in MODELS if name not in names],
+                "fuse_conv_bn": args.fuse, "with_mobilenet": args.with_mobilenet,
+                "models": names, "skipped_models": [name for name in requested if name not in names],
                 "dataset": dataset_info(annotation_path, image_root),
                 "environment": collect_environment(str(device)), "git_commit": git_commit(ROOT)}
     if device.type == "cuda":
         print(f"GPU: {torch.cuda.get_device_name(device)}", flush=True)
     if args.skip_faster_rcnn:
-        print("Faster R-CNN을 제외하고 Lite R-CNN v2/v3만 평가합니다 (--skip-faster-rcnn).", flush=True)
+        print(f"Faster R-CNN을 제외하고 {', '.join(names)}만 평가합니다 (--skip-faster-rcnn).",
+              flush=True)
+    if args.with_mobilenet:
+        print(f"{MOBILENET}도 같은 조건에서 함께 평가합니다 (--with-mobilenet).", flush=True)
     results = []
     for name in names:
         print(f"\n=== {name}: evaluating {count} shared images ===", flush=True)
-        results.append(evaluate_one(name, weights[name], configs[name], dataset, indices,
-                                    timing_indices, warmup, device, args))
+        try:
+            row = evaluate_one(name, weights[name], configs[name], dataset, indices,
+                               timing_indices, warmup, device, args)
+        except SystemExit as exc:  # build_model: a baseline's COCO weights could not be downloaded
+            if not results or not isinstance(exc.code, str):
+                raise  # no model finished: there is no partial_results.json (nor output folder)
+            finished = ", ".join(done["model"] for done in results)
+            raise SystemExit(f"{exc.code}\n앞서 끝난 모델({finished})의 결과는 "
+                             f"{output_dir / 'partial_results.json'}에 있습니다.") from exc
+        results.append(row)
         partial_metadata = {**metadata, "models_completed": [row["model"] for row in results]}
         output_dir.mkdir(parents=True, exist_ok=True)  # not before: a failed load leaves no folder
         (output_dir / "partial_results.json").write_text(

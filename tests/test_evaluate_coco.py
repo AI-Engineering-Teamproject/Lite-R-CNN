@@ -180,3 +180,34 @@ def test_blocked_weight_download_exits_with_hint(evaluate, monkeypatch, coco):
     with pytest.raises(SystemExit, match="--weights"):
         run(module, monkeypatch, "--config", ROOT / "configs/coco.yaml", "--model", "faster_rcnn",
             "--device", "cpu")
+
+
+def test_mobilenet_baseline_scores_with_torchvision_weights_by_default(evaluate, monkeypatch,
+                                                                        coco, tmp_path):
+    module, built = evaluate
+    images, annotations = coco
+    output = tmp_path / "report.json"
+    run(module, monkeypatch, "--config", ROOT / "configs/coco.yaml", "--model",
+        "mobilenet_faster_rcnn", "--device", "cpu", "--images", images, "--annotations",
+        annotations, "--limit", 2, "--output", output)  # no --weights: torchvision COCO_V1
+    report = json.loads(output.read_text())
+    assert (built["kind"], built["weights"], built["image_size"]) == ("mobilenet_faster_rcnn",
+                                                                       None, 640)
+    assert (report["kind"], report["model"]) == ("accuracy", "mobilenet_faster_rcnn")
+    assert report["weights"] == "torchvision_coco_v1" and report["weights_sha256"] is None
+    accuracy = report["accuracy"]
+    # The same comparison settings as every other model (comparison.score_threshold etc.).
+    assert (accuracy["score_threshold"], accuracy["max_detections"]) == (0.001, 100)
+    assert report["batch_size"] == 1 and accuracy["images_evaluated"] == 2
+
+
+def test_mobilenet_blocked_weight_download_exits_with_hint(evaluate, monkeypatch, coco):
+    module, _ = evaluate
+
+    def offline(kind, *args):
+        raise URLError("Tunnel connection failed: 403 Forbidden")
+
+    monkeypatch.setattr(module, "load_comparison_model", offline)
+    with pytest.raises(SystemExit, match="default mobilenet_faster_rcnn weights .*--weights"):
+        run(module, monkeypatch, "--config", ROOT / "configs/coco.yaml", "--model",
+            "mobilenet_faster_rcnn", "--device", "cpu")

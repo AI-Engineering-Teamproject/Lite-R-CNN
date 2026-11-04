@@ -385,7 +385,8 @@ def test_mixed_light_rcnn_checkpoints_get_a_selector_not_a_warning(app_test, tmp
     assert box.options == ["Light R-CNN v3", "Light R-CNN v2"] and box.value == "3" * 64  # newest
     assert not any("체크포인트" in w.value for w in app.warning)  # outputs/ mixes v2 and v3 anyway
     assert any("Light R-CNN 체크포인트 2개" in c.value for c in app.sidebar.caption)
-    assert card_titles(app) == ["**Vanilla Faster R-CNN**", "**Light R-CNN v3**", "**YOLO26**"]
+    assert card_titles(app) == ["**Vanilla Faster R-CNN**", "**MobileNetV3 Faster R-CNN**",
+                               "**Light R-CNN v3**", "**YOLO26**"]
     assert metric_values(app, "AP@[.50:.95]") == ["37.0%", "26.3%"]
     assert metric_values(app, "지연") == ["1450 ms", "51.0 ms"]
     assert ("<title>Light R-CNN 성능 비교 보고서 (Light R-CNN v3 · 개선 전 (기본 설정) · Xeon)</title>"
@@ -410,7 +411,7 @@ def test_mixed_light_rcnn_checkpoints_get_a_selector_not_a_warning(app_test, tmp
     sidebar_box(app, CHECKPOINT_LABEL).set_value("2" * 64).run()
     assert not app.exception, [e.value for e in app.exception]
     assert sidebar_box(app, "추론 설정").value == "fast"
-    assert card_titles(app)[1] == "**Light R-CNN v2**"
+    assert card_titles(app)[2] == "**Light R-CNN v2**"
     assert metric_values(app, "AP@[.50:.95]") == ["36.9%", "22.3%"]
     assert metric_values(app, "지연") == ["1310 ms", "33.0 ms"]
     tradeoff = next(spec for spec in map(json.loads, (c.proto.spec for c in app.get("plotly_chart")))
@@ -435,12 +436,12 @@ def test_the_selector_never_mixes_two_checkpoints_on_one_card(app_test, tmp_path
     # Unfiltered, v2's complete accuracy would outrank v3's partial one next to v3's latency.
     write_versions(tmp_path, v2_complete=True)
     app = app_test()
-    assert card_titles(app)[1] == "**Light R-CNN v3**"
+    assert card_titles(app)[2] == "**Light R-CNN v3**"
     assert metric_values(app, "AP@[.50:.95]")[1] == "26.3%"  # v3's own accuracy
     assert not any("서로 다른 가중치(체크포인트)" in e.value for e in app.error)
     sidebar_box(app, CHECKPOINT_LABEL).set_value("2" * 64).run()
     assert not app.exception, [e.value for e in app.exception]
-    assert card_titles(app)[1] == "**Light R-CNN v2**"
+    assert card_titles(app)[2] == "**Light R-CNN v2**"
     assert metric_values(app, "AP@[.50:.95]")[1] == "21.3%"
     assert not any("서로 다른 가중치(체크포인트)" in e.value for e in app.error)
 

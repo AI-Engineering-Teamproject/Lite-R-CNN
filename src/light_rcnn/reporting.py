@@ -8,7 +8,9 @@ pick one record per (kind, model) with ``select_reports`` and surface comparabil
 A record may also carry the inference preset it was measured with (top-level ``variant``,
 ``variant_label`` and ``inference_options``, see ``light_rcnn.inference_opts``); records without one
 ran the model defaults and count as the ``baseline`` variant. Light R-CNN v2 and v3 share the
-``light_rcnn`` key; ``checkpoints`` tells their reports apart by the weights they record.
+``light_rcnn`` key; ``checkpoints`` tells their reports apart by the weights they record. The two
+torchvision baselines have keys of their own: ``faster_rcnn`` (ResNet50-FPN) and
+``mobilenet_faster_rcnn`` (MobileNetV3-Large-FPN).
 
 This module must stay importable without PyTorch: the dashboard only needs pandas, plotly and
 streamlit, so torch is imported lazily inside ``collect_environment``.
@@ -34,9 +36,10 @@ from typing import Any
 
 SCHEMA_VERSION = 2
 
-# Fixed model order and display names. Colors in viz.py follow this order, never a rank.
+# Fixed model order and display names. Colors in viz.py follow the model, never a rank.
 MODELS: dict[str, str] = {
     "faster_rcnn": "Vanilla Faster R-CNN",
+    "mobilenet_faster_rcnn": "MobileNetV3 Faster R-CNN",
     "light_rcnn": "Light R-CNN",
     "yolo26": "YOLO26",
 }
@@ -313,7 +316,8 @@ def identify_model(raw: dict[str, Any]) -> str | None:
     if "light" in compact:
         return "light_rcnn"
     if "fasterrcnn" in compact:
-        return "faster_rcnn"
+        # 'fasterrcnn_mobilenet_v3_large_fpn', 'Faster R-CNN MobileNetV3-Large-FPN': not ResNet-50.
+        return "mobilenet_faster_rcnn" if "mobilenet" in compact else "faster_rcnn"
     return None
 
 

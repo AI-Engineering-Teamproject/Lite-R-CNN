@@ -1,9 +1,9 @@
 """Inference-time options for the compared R-CNN detectors, applied to one model instance.
 
-Light R-CNN v2/v3 and the torchvision Faster R-CNN baseline share torchvision's GeneralizedRCNN
-pipeline, so every option is a setting or an instance-level swap on that pipeline and one preset
-applies to every compared R-CNN alike: apply the same preset to the baseline for a fair table.
-Nothing is retrained; Conv+BN folding is exact.
+Light R-CNN v2/v3 and the torchvision Faster R-CNN baselines (ResNet50-FPN, MobileNetV3-Large-FPN)
+share torchvision's GeneralizedRCNN pipeline, so every option is a setting or an instance-level
+swap on that pipeline and one preset applies to every compared R-CNN alike: apply the same preset
+to the baselines for a fair table. Nothing is retrained; Conv+BN folding is exact.
 """
 
 from __future__ import annotations
@@ -275,12 +275,16 @@ def pin_roi_scales(model: nn.Module, canvas: int) -> list[float]:
     samples the wrong places for every later image. Measured on the canvas itself the scales are
     the true 1/stride, right for any input. Works for Light R-CNN's CompressedMultiScaleRoIAlign
     (its projections keep the map size) and torchvision's pooler alike.
+
+    The pooler pools the backbone maps whose names it lists, in the backbone's order (torchvision's
+    ``_filter_input``): torchvision's MobileNetV3-Large-FPN returns '0', '1' and 'pool' to the
+    default pooler's '0'..'3', so only '0' and '1' (both stride 32) count there.
     """
     pool = model.roi_heads.box_roi_pool
     parameter = next(model.parameters())
     with torch.no_grad():
         features = model.backbone(parameter.new_zeros((1, 3, canvas, canvas)))
-    maps = [features[name] for name in pool.featmap_names]
+    maps = [feature for name, feature in features.items() if name in pool.featmap_names]
     pool.scales, pool.map_levels = _setup_scales(maps, [(canvas, canvas)], pool.canonical_scale,
                                                  pool.canonical_level)
     return [float(scale) for scale in pool.scales]

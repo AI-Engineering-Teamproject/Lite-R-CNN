@@ -1,6 +1,6 @@
 # Lite R-CNN
 
-Lite R-CNN은 **MobileNetV3-Large와 BiFPN을 적용해 경량화한 Faster R-CNN 기반 모델**입니다. 표준 anchor 기반 RPN과 2단계 RoI 검출 흐름을 유지하면서 백본, 다중 스케일 특징 융합부, RoI 헤드를 구성했습니다. 이 프로젝트 고유의 조합이며 논문 Light-Head R-CNN의 재현 구현은 아닙니다. 비교 대상은 COCO 사전학습 Faster R-CNN ResNet-50-FPN과 Ultralytics YOLO26 nano입니다.
+Lite R-CNN은 **MobileNetV3-Large와 BiFPN을 적용해 경량화한 Faster R-CNN 기반 모델**입니다. 표준 anchor 기반 RPN과 2단계 RoI 검출 흐름을 유지하면서 백본, 다중 스케일 특징 융합부, RoI 헤드를 구성했습니다. 이 프로젝트 고유의 조합이며 논문 Light-Head R-CNN의 재현 구현은 아닙니다. 비교 대상은 COCO 사전학습 Faster R-CNN ResNet-50-FPN과 MobileNetV3 Faster R-CNN(torchvision `fasterrcnn_mobilenet_v3_large_fpn`, COCO_V1 가중치), Ultralytics YOLO26 nano입니다.
 
 v2는 COCO 2017 전체 학습 세트로 36 epoch 학습했고, 전체 val2017 5,000장 평가에서 최고 AP@[.50:.95] **28.82% (epoch 25)**를 기록했습니다. 최고 체크포인트는 `outputs/coco_4090_v2/best.pth`입니다. RTX 4090 단일 이미지 측정에서 Lite R-CNN은 p50 4.26ms였지만, 이 지연 시간 결과는 같은 환경에서 수행한 COCO 정확도 비교를 대신하지 않습니다. 상세 결과는 [실험 기록](docs/EXPERIMENT_LOG.md)을 참고하십시오.
 
@@ -147,7 +147,7 @@ RTX 4090 환경에서는 CUDA 지원 PyTorch/torchvision을 설치한 뒤 `pytho
 python scripts/train.py --config configs/coco_cpu.yaml --device cpu --epochs 2 --train-limit 16 --val-limit 16 --output-dir outputs/coco_cpu_smoke
 ```
 
-전체 COCO 정확도와 지연 시간을 세 모델에서 비교하려면 v2 체크포인트로 다음을 실행합니다. 이 평가는 COCO val2017 전체를 사용하므로 시간이 걸릴 수 있습니다.
+전체 COCO 정확도와 지연 시간을 네 모델에서 비교하려면 v2 체크포인트로 다음을 실행합니다. 이 평가는 COCO val2017 전체를 사용하므로 시간이 걸릴 수 있습니다.
 
 ```powershell
 python scripts/run_comparison.py --config configs/coco.yaml --device cuda --light-weights outputs/coco_4090_v2/best.pth --yolo-weights yolo26n.pt --no-dashboard
@@ -163,12 +163,12 @@ python scripts/run_comparison.py --single-image data/coco/images/val2017/0000001
 
 ### 성능 측정과 그래프
 
-측정 규칙, 결과 파일 형식, 그래프 읽는 법은 [성능 측정 안내](docs/MEASUREMENT.md)에 정리했습니다. 자주 쓰는 명령은 다음과 같습니다.
+측정 규칙, 결과 파일 형식, 그래프 읽는 법은 [성능 측정 안내](docs/MEASUREMENT.md)에 정리했습니다. 비교하는 검출기는 네 가지입니다: torchvision Faster R-CNN ResNet50-FPN, **MobileNetV3 Faster R-CNN**(torchvision `fasterrcnn_mobilenet_v3_large_fpn`), Lite R-CNN v2/v3, YOLO26 nano. MobileNetV3 Faster R-CNN은 팀원 브랜치 `feat/personal-comparison-ci`의 MobileNet 벤치마크와 같은 모델로, Lite R-CNN과 같은 MobileNetV3-Large 계열 백본을 쓰는 기존 경량 Faster R-CNN 옆에서 Lite R-CNN이 어디쯤인지 보여 줍니다 (BiFPN 하나의 효과를 가르는 ablation은 아님). 두 Faster R-CNN은 torchvision COCO_V1 가중치를 쓰고 다른 모델처럼 640으로 리사이즈합니다. MobileNet의 torchvision 공식 box AP 32.8은 800px 기준이라 640에서는 더 낮게 나올 수 있고, 이 모델의 숫자는 Colab T4 실행에서 나옵니다 (CPU 스모크 환경에서는 torchvision 가중치를 내려받을 수 없어 재지 못했음). 자주 쓰는 명령은 다음과 같습니다.
 
 ```powershell
 # 학습 중 검증한 최고 epoch 정확도를 결과 파일로 가져오기 (outputs/reports/light_rcnn_accuracy_training.json)
 python scripts/import_training_results.py outputs/coco_4090_v2
-# 이미지 폴더 하나로 세 모델의 지연 시간만 측정
+# 이미지 폴더 하나로 네 모델의 지연 시간만 측정
 python scripts/run_comparison.py --inference-only --source data/coco/images/val2017 --device cuda --light-weights outputs/coco_4090_v2/best.pth --no-dashboard
 # 대화형 대시보드 (왼쪽 메뉴에서 결과 폴더와 지연 시간 측정 장치 선택)
 streamlit run dashboard/app.py
@@ -176,15 +176,15 @@ streamlit run dashboard/app.py
 python scripts/plot_results.py --reports outputs --out outputs/figures --theme both
 ```
 
-학습 중 검증 결과는 점수 임계값 0.05로 계산되어 비교용 평가(0.001)와 조건이 다릅니다. 세 모델의 최종 비교 숫자는 `run_comparison.py` 또는 `evaluate_coco.py`로 다시 평가한 값을 사용하십시오.
+학습 중 검증 결과는 점수 임계값 0.05로 계산되어 비교용 평가(0.001)와 조건이 다릅니다. 최종 비교 숫자는 `run_comparison.py` 또는 `evaluate_coco.py`로 다시 평가한 값을 사용하십시오.
 
 ### 성능 개선 계획과 Colab 실행
 
-재학습 없는 추론 설정(Conv+BN 융합, RPN 후보 축소, 고정 캔버스, Soft-NMS 등)과 v3.1 학습 ablation의 우선순위·근거·채택 기준은 [성능 개선 계획](docs/PERFORMANCE_PLAN.md)에 정리했습니다. CPU 스모크 측정(COCO 128장, 4코어 CPU, 같은 측정 두 번)에서는 `fast`가 AP를 유지하면서 `deploy`보다 v2 25~28%, v3 35~36% 빨랐고, `accurate`는 AP가 v2 +3.45%p, v3 +1.75%p 올랐습니다 (학습 이미지가 섞인 스모크 세트라 AP는 상대 비교용이고, T4 결과는 Colab에서 확인합니다). Google Colab 무료 T4에서 세 모델 기준 비교와 개선 전/후 비교를 한 번에 실행하는 노트북은 `notebooks/Lite_RCNN_T4_Colab.ipynb`입니다. 브랜치 올리기(Windows 명령 프롬프트), Colab 실행, 결과 보내기·대시보드로 보기, 학교 RTX 4090 학습 순서는 [Colab·4090 실행 안내](docs/COLAB.md)를 따르십시오.
+재학습 없는 추론 설정(Conv+BN 융합, RPN 후보 축소, 고정 캔버스, Soft-NMS 등)과 v3.1 학습 ablation의 우선순위·근거·채택 기준은 [성능 개선 계획](docs/PERFORMANCE_PLAN.md)에 정리했습니다. CPU 스모크 측정(COCO 128장, 4코어 CPU, 같은 측정 두 번)에서는 `fast`가 AP를 유지하면서 `deploy`보다 v2 25~28%, v3 35~36% 빨랐고, `accurate`는 AP가 v2 +3.45%p, v3 +1.75%p 올랐습니다 (학습 이미지가 섞인 스모크 세트라 AP는 상대 비교용이고, T4 결과는 Colab에서 확인합니다). Google Colab 무료 T4에서 네 모델 기준 비교(MobileNetV3 Faster R-CNN 포함, 설정 `WITH_MOBILENET`으로 뺄 수 있음)와 개선 전/후 비교를 한 번에 실행하는 노트북은 `notebooks/Lite_RCNN_T4_Colab.ipynb`입니다. 브랜치 올리기(Windows 명령 프롬프트), Colab 실행, 결과 보내기·대시보드로 보기, 학교 RTX 4090 학습 순서는 [Colab·4090 실행 안내](docs/COLAB.md)를 따르십시오.
 
 ## 비교 프로토콜
 
-성능 측정 담당자와 데이터셋 담당자는 세 모델에 동일한 COCO split과 이미지 집합을 사용하고, 입력 크기 640, batch size 1, 장치와 정밀도를 기록합니다. 각 프레임워크의 resize/padding 방식은 다를 수 있으므로 설정도 함께 남깁니다.
+성능 측정 담당자와 데이터셋 담당자는 비교하는 모든 모델(Faster R-CNN, MobileNetV3 Faster R-CNN, Lite R-CNN, YOLO26)에 동일한 COCO split과 이미지 집합을 사용하고, 입력 크기 640, batch size 1, 장치와 정밀도를 기록합니다. 각 프레임워크의 resize/padding 방식은 다를 수 있으므로 설정도 함께 남깁니다.
 
 최종 비교표에는 다음 항목을 기록합니다.
 
@@ -200,7 +200,7 @@ python scripts/plot_results.py --reports outputs --out outputs/figures --theme b
 ## 현재 상태와 제한
 
 - 모델 구조, COCO 학습/검증, best/last 저장, 학습 재개와 선택형 지식 증류 코드가 있습니다.
-- v2 COCO 학습 가중치는 `outputs/coco_4090_v2/best.pth`에 있습니다. COCO 세 모델 간 동일 조건 전체 정확도 비교와 T4 성능은 별도 측정이 필요합니다.
+- v2 COCO 학습 가중치는 `outputs/coco_4090_v2/best.pth`에 있습니다. COCO 네 모델 간 동일 조건 전체 정확도 비교와 T4 성능은 별도 측정이 필요합니다.
 - CPU 합성 데이터 통합 테스트가 구현되어 있지만, 실제 정확도 향상은 COCO 학습 결과로 확인해야 합니다.
 - ONNX 내보내기 진입점은 있으나 TensorRT에서 RoIAlign/NMS를 포함해 동작하는지와 FP16/INT8 정확도는 검증이 필요합니다.
 - 대시보드 코드는 [dashboard/app.py](dashboard/app.py)이며 평가 JSON과 지연 시간 JSON을 읽습니다.

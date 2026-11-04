@@ -1,11 +1,27 @@
 # 성능 측정과 그래프
 
-이 문서는 세 모델(바닐라 Faster R-CNN, Light R-CNN, YOLO26)을 **같은 규칙으로** 재고, 결과를 그래프로 보는 방법을 설명합니다. 명령은 저장소 최상위 폴더에서 실행합니다.
+이 문서는 네 모델(바닐라 Faster R-CNN ResNet50-FPN, MobileNetV3 Faster R-CNN, Light R-CNN, YOLO26)을 **같은 규칙으로** 재고, 결과를 그래프로 보는 방법을 설명합니다. 명령은 저장소 최상위 폴더에서 실행합니다.
+
+## 비교 대상
+
+| 모델 키 (`--model`/`--models`) | 표시 이름 | 무엇인가 | 가중치 |
+|---|---|---|---|
+| `faster_rcnn` | Vanilla Faster R-CNN | torchvision Faster R-CNN ResNet50-FPN (2단계 검출의 기준) | torchvision `COCO_V1` |
+| `mobilenet_faster_rcnn` | MobileNetV3 Faster R-CNN | torchvision `fasterrcnn_mobilenet_v3_large_fpn` (320 전용 모델 아님) | torchvision `COCO_V1` |
+| `light_rcnn` | Light R-CNN | 우리 모델 (v2/v3는 체크포인트로 구분) | `outputs/coco_4090_v2/best.pth`, `outputs/coco_4090_v3/best.pth` |
+| `yolo26` | YOLO26 | Ultralytics YOLO26 nano (1단계 검출의 대조군) | `yolo26n.pt` |
+
+**MobileNet 비교군을 넣은 이유.** Lite R-CNN과 같은 MobileNetV3-Large 계열 백본을 쓰는 기존(off-the-shelf) 경량 Faster R-CNN이라, Lite R-CNN이 이미 있는 가벼운 R-CNN 옆에서 정확도·속도로 어디쯤인지 보여 줍니다. 학습 과정, 특징 융합(FPN과 BiFPN), 앵커, 제안 수가 모두 다르므로 **BiFPN 하나의 효과를 가르는 ablation은 아닙니다.** 팀원 브랜치 `feat/personal-comparison-ci`의 독립 네 모델 비교(`docs/MY_COMPARISON.md`)에서 쓴 "MobileNet 벤치마크"와 같은 모델을, 여기서는 이 저장소의 측정 도구와 같은 프로토콜(같은 이미지, 같은 타이밍 범위, 같은 점수 하한·최대 검출 수, R-CNN 공통 추론 설정과 Conv+BN 융합 규칙)로 잽니다.
+
+- **가중치**: torchvision `COCO_V1`. torchvision 문서의 box AP 32.8은 torchvision 기본 리사이즈(짧은 변 800, 긴 변 최대 1333) 기준입니다. 여기서는 ResNet50 기준 모델처럼 `image_size`(640)로 리사이즈하므로(`min_size = max_size = 640`) **32.8보다 낮게 나올 수 있습니다.**
+- **그대로 두는 torchvision 기본값**: 앵커(세 레벨 모두 32~512 × 비율 0.5/1/2), RPN 객체성 점수 하한 0.05(Faster R-CNN ResNet50·Light R-CNN은 0), 테스트 RPN 후보 NMS 전·후 1000개. `compare_improvements.py` 보고서의 `inference_options.applied`(`rpn_score_thresh` 등)와 `evaluate_three_models.py`의 `evaluation.json`(`rpn_settings`)에 기록됩니다. `evaluate_three_models.py`만 모든 모델의 제안 수를 300개로 맞춥니다.
+- **구조 메모**: 특징 맵은 stride 32 두 장('0', '1')과 RPN 전용 'pool'(stride 64)뿐이라, RoIAlign은 stride 32 특징만 씁니다 (작은 물체에 불리). 단계별 시간에서 백본은 MobileNetV3 본체와 FPN으로 나눠 기록합니다.
+- **숫자는 Colab T4 실행에서 나옵니다.** 이 저장소의 CPU 스모크 측정 환경에서는 download.pytorch.org가 막혀 torchvision COCO 가중치를 받을 수 없어 두 Faster R-CNN 모두 측정하지 못했습니다 (가중치 없이 구조만 확인하는 테스트는 있음). 가중치를 받을 수 없는 곳에서는 받아 둔 state dict를 `--faster-weights`·`--mobilenet-weights`(단일 스크립트는 `--weights`)로 줍니다.
 
 ## 빠른 시작
 
 ```powershell
-# 1) 세 모델 전체 비교: COCO 정확도 + 지연 시간 + 단계별 시간 + 그래프 + 대시보드 (COCO val2017 필요)
+# 1) 네 모델 전체 비교: COCO 정확도 + 지연 시간 + 단계별 시간 + 그래프 + 대시보드 (COCO val2017 필요)
 python scripts/run_comparison.py --config configs/coco.yaml --device cuda --light-weights outputs/coco_4090_v2/best.pth --yolo-weights yolo26n.pt
 
 # 2) annotation 없이 지연 시간만: 이미지 한 장(--single-image) 또는 이미지 폴더(--inference-only --source)
@@ -22,7 +38,7 @@ python scripts/plot_results.py --reports outputs/comparison_runs/<실행 시각>
 
 ## 한 번에 실행하기: `run_comparison.py`
 
-`run_comparison.py`는 모델마다 **COCO 평가 → 지연 시간 측정 → (R-CNN 계열만) 단계별 시간 분석** 을 실행하고, 그래프 파일을 만든 뒤 대시보드를 엽니다. 모델 순서는 `--models`에 적은 순서와 상관없이 항상 Faster R-CNN → Light R-CNN → YOLO26입니다.
+`run_comparison.py`는 모델마다 **COCO 평가 → 지연 시간 측정 → (R-CNN 계열만) 단계별 시간 분석** 을 실행하고, 그래프 파일을 만든 뒤 대시보드를 엽니다. 모델 순서는 `--models`에 적은 순서와 상관없이 항상 기준 모델 먼저: Faster R-CNN → MobileNetV3 Faster R-CNN → Light R-CNN → YOLO26입니다.
 
 - 결과는 실행할 때마다 새 폴더 `outputs/comparison_runs/<실행 시각>/`에 `<모델>_<종류>.json`으로 저장되고, 그래프는 그 안의 `figures/`에 저장됩니다.
 - 대시보드는 환경 변수 `LIGHT_RCNN_RESULTS_DIR`로 방금 끝난 실행 폴더를 열어 줍니다. `--no-dashboard`를 주면 대시보드를 띄우지 않습니다.
@@ -35,16 +51,17 @@ python scripts/plot_results.py --reports outputs/comparison_runs/<실행 시각>
 | `--light-weights` | Light R-CNN 체크포인트. 기본 `<train.output_dir>/best.pth`. 구조(백본, 채널 수 등)는 체크포인트 안에 저장된 학습 설정에서 읽습니다 |
 | `--yolo-weights` | YOLO26 가중치. 기본 `comparison.control.weights`(`yolo26n.pt`) |
 | `--faster-weights` | Faster R-CNN 체크포인트. 생략하면 torchvision COCO 가중치를 내려받습니다 |
-| `--models light_rcnn yolo26` | 일부 모델만 측정 |
+| `--mobilenet-weights` | MobileNetV3 Faster R-CNN 체크포인트(state dict 또는 `{"model": ...}`). 생략하면 torchvision COCO 가중치를 내려받습니다 |
+| `--models light_rcnn yolo26` | 일부 모델만 측정 (기본: `faster_rcnn mobilenet_faster_rcnn light_rcnn yolo26` 전부) |
 | `--single-image IMAGE` | 이 이미지 한 장으로 지연 시간만 측정 (정확도 평가 생략) |
 | `--inference-only` + `--source` | 이미지 파일 또는 폴더로 지연 시간만 측정 (정확도 평가 생략) |
 | `--source` | 지연 시간 측정에 쓸 이미지 파일/폴더. 기본은 config의 `val_images` |
-| `--limit N` | COCO 평가를 N장으로 줄임 (세 모델이 같은 N장을 평가) |
+| `--limit N` | COCO 평가를 N장으로 줄임 (모든 모델이 같은 N장을 평가) |
 | `--warmup`, `--iterations`, `--image-count` | 예열 횟수, 측정 반복 횟수, 돌려 쓸 이미지 수. 기본값은 config의 `comparison` |
 | `--yolo-nms-free` | YOLO26을 NMS 없는(one-to-one) 헤드로 측정 (평가와 지연 시간 모두) |
 | `--train-light` | 비교 전에 Light R-CNN을 먼저 학습 (COCO train split 필요) |
 
-인터넷이 막혀 torchvision 가중치(download.pytorch.org)를 받을 수 없으면 Faster R-CNN 단계에서 실패합니다. 다른 곳에서 받아 둔 체크포인트를 `--faster-weights`로 주거나, `--models light_rcnn yolo26`으로 Faster R-CNN을 빼고 실행하십시오.
+인터넷이 막혀 torchvision 가중치(download.pytorch.org)를 받을 수 없으면 Faster R-CNN 또는 MobileNetV3 Faster R-CNN 단계에서 멈춥니다 (앞서 끝난 결과는 실행 폴더에 남음). 다른 곳에서 받아 둔 체크포인트를 `--faster-weights`·`--mobilenet-weights`로 주거나, `--models light_rcnn yolo26`으로 두 모델을 빼고 실행하십시오.
 
 이미지 한 장 결과는 동작 확인용입니다. 같은 사진만 반복하므로 일반적인 지연 시간 분포를 대표하지 않습니다.
 
@@ -54,17 +71,20 @@ python scripts/plot_results.py --reports outputs/comparison_runs/<실행 시각>
 
 | 스크립트 | 하는 일 | 자주 쓰는 옵션 |
 |---|---|---|
-| `evaluate_coco.py` | Light R-CNN / Faster R-CNN COCO 정확도 | `--model`, `--weights`, `--limit`, `--batch-size`(기본 `comparison.batch_size` = 1). `--config`를 생략하면 구조와 데이터 경로는 체크포인트에 저장된 학습 설정을 씁니다 |
+| `evaluate_coco.py` | Light R-CNN / Faster R-CNN / MobileNetV3 Faster R-CNN COCO 정확도 | `--model light_rcnn`·`faster_rcnn`·`mobilenet_faster_rcnn`, `--weights`, `--limit`, `--batch-size`(기본 `comparison.batch_size` = 1). `--config`를 생략하면 구조와 데이터 경로는 체크포인트에 저장된 학습 설정을 씁니다 |
 | `evaluate_yolo26.py` | YOLO26 COCO 정확도 (같은 pycocotools 계산기) | `--weights`, `--limit`, `--nms-free` |
 | `benchmark.py` | R-CNN 계열 지연 시간 | `--model`, `--weights`, `--source`, `--iterations`, `--channels-last` / `--no-channels-last` |
 | `benchmark_yolo26.py` | YOLO26 지연 시간 | `--weights`, `--source`, `--iterations`, `--channels-last` / `--no-channels-last` |
-| `profile_stages.py` | R-CNN 단계별 시간 (입력·전처리, 백본, RPN, RoI 헤드, 후처리) | `--model`, `--weights`, `--source` |
+| `profile_stages.py` | R-CNN 단계별 시간 (입력·전처리, 백본, RPN, RoI 헤드, 후처리 + 세부 단계) | `--model`, `--weights`, `--source` |
 | `import_training_results.py` | 학습 중 검증 결과를 정확도 결과 파일로 변환 | 아래 설명 참고 |
 
 ```powershell
 python scripts/evaluate_coco.py --model light_rcnn --weights outputs/coco_4090_v2/best.pth --device cuda
 python scripts/benchmark.py --model light_rcnn --weights outputs/coco_4090_v2/best.pth --device cuda --source data/coco/images/val2017
+python scripts/benchmark.py --model mobilenet_faster_rcnn --device cuda --source data/coco/images/val2017
 ```
+
+`profile_stages.py`의 세부 단계(이미 상위 단계 시간에 포함, 더하지 않음): 백본을 **백본 본체**(`backbone.body`)와 **FPN/BiFPN 특징 융합**(`backbone.neck`: Light R-CNN v2의 BiFPN, v3의 Lite FPN, torchvision 두 기준 모델의 FPN)으로 나누고, RPN의 제안 필터링 + NMS, RoI 헤드의 클래스별 NMS를 따로 잽니다. 백본에 본체·융합 모듈이 따로 없는 모델은 그 세부 단계를 비우고 `stages.unavailable_substages`에 이유를 기록합니다 (네 모델 중 해당 없음).
 
 ## 학습 중 검증 결과 가져오기: `import_training_results.py`
 
@@ -83,19 +103,20 @@ python scripts/import_training_results.py outputs/coco_4090_v2
 - **평가 배치 크기**: 학습 검증은 `val_batch_size`(v2는 4장씩)로 계산했습니다. R-CNN은 여러 장을 묶으면 패딩 때문에 AP가 1%p 안팎 달라질 수 있어, 비교용 평가(1장씩)와 섞이면 대시보드가 경고합니다.
 - **평가 이미지**: 검증 범위(전체 val 5000장 또는 고정 부분 집합)를 그대로 기록합니다.
 - **환경·시각**: 장치 이름과 PyTorch 버전, 코드 revision은 `RESULTS.md`에서 읽고, 측정 시각은 학습이 기록한 시각입니다. 그래서 같은 조건의 `evaluate_coco.py` 결과를 나중에 만들면 대시보드는 그쪽을 우선 사용합니다.
-- 공정한 세 모델 비교의 최종 숫자는 `evaluate_coco.py`(또는 `run_comparison.py`)로 다시 평가한 값을 쓰십시오.
+- 공정한 네 모델 비교의 최종 숫자는 `evaluate_coco.py`(또는 `run_comparison.py`)로 다시 평가한 값을 쓰십시오.
 
 ## 측정 규칙 (공정성)
 
 | 항목 | 규칙 | 이유 |
 |---|---|---|
-| AP 계산 | 세 모델 모두 `pycocotools`(`src/light_rcnn/coco_eval.py`)로 계산 | 계산기가 다르면 같은 예측도 AP가 달라집니다 |
-| 평가 이미지 | `--limit`을 쓰면 config의 `seed`로 고른 같은 무작위 부분 집합을 세 모델과 학습 검증이 함께 사용 | 다른 사진으로 채점하면 비교가 안 됩니다 |
+| AP 계산 | 모든 모델을 `pycocotools`(`src/light_rcnn/coco_eval.py`)로 계산 | 계산기가 다르면 같은 예측도 AP가 달라집니다 |
+| 평가 이미지 | `--limit`을 쓰면 config의 `seed`로 고른 같은 무작위 부분 집합을 모든 모델과 학습 검증이 함께 사용 | 다른 사진으로 채점하면 비교가 안 됩니다 |
 | 점수 임계값 | 정확도: `score_threshold` 0.001, 최대 100개 · 지연 시간: `latency_score_threshold` 0.25 | 임계값이 낮을수록 AP가 유리하고 NMS 시간이 늘어납니다 |
-| 평가 배치 크기 | 정확도 평가는 세 모델 모두 1장씩(`comparison.batch_size`) | R-CNN은 여러 장을 묶으면 패딩 때문에 AP가 달라집니다 |
+| 평가 배치 크기 | 정확도 평가는 모든 모델을 1장씩(`comparison.batch_size`) | R-CNN은 여러 장을 묶으면 패딩 때문에 AP가 달라집니다 |
+| 입력 크기 | 모든 모델 640 (`image_size`). torchvision 두 기준 모델도 `min_size = max_size = 640`으로 리사이즈 (torchvision 기본 800/1333이 아님) | 입력이 크면 AP와 지연 시간이 함께 커집니다 |
 | 타이밍 범위 | 디코드된 uint8 이미지(호스트 메모리) → 최종 검출. 장치 복사, 정규화, 리사이즈, 모델, 후처리/NMS 포함. 파일 디코드 제외 | 한 모델만 준비 과정을 빼고 재면 그 모델이 유리합니다 |
-| CPU 스레드 수 | 세 모델을 같은 torch 스레드 수로 측정. YOLO 스크립트는 Ultralytics가 낮춘 스레드 수를 되돌립니다. 바꾸려면 실행 전에 `OMP_NUM_THREADS`를 설정 | 스레드 수가 다르면 지연 시간이 달라집니다 (다르면 대시보드가 오류로 표시) |
-| 그래프 설정 | 세 모델 모두 Conv+BN을 융합. 메모리 형식은 config의 `comparison.channels_last`(또는 각 벤치마크의 `--channels-last`/`--no-channels-last`)를 따르고, 지정하지 않으면 Ultralytics 자동 규칙(x86 CPU에서는 channels_last)을 세 스크립트가 똑같이 적용 | CPU에서는 channels_last 여부만으로 1.5배 안팎 차이가 납니다 |
+| CPU 스레드 수 | 모든 모델을 같은 torch 스레드 수로 측정. YOLO 스크립트는 Ultralytics가 낮춘 스레드 수를 되돌립니다. 바꾸려면 실행 전에 `OMP_NUM_THREADS`를 설정 | 스레드 수가 다르면 지연 시간이 달라집니다 (다르면 대시보드가 오류로 표시) |
+| 그래프 설정 | 모든 모델의 Conv+BN을 융합 (torchvision 사전학습 백본의 FrozenBatchNorm2d 포함). 메모리 형식은 config의 `comparison.channels_last`(또는 각 벤치마크의 `--channels-last`/`--no-channels-last`)를 따르고, 지정하지 않으면 Ultralytics 자동 규칙(x86 CPU에서는 channels_last)을 세 벤치마크 스크립트가 똑같이 적용 | CPU에서는 channels_last 여부만으로 1.5배 안팎 차이가 납니다 |
 | 첫 추론 | 예열 전에 따로 기록(`cold_start_ms`). R-CNN은 장치에 올린 모델의 첫 추론, YOLO26은 Ultralytics 예측기 준비 포함 | 참고용입니다. 모델 간 직접 비교에는 쓰지 마십시오 |
 | 반복 횟수 | `configs/coco.yaml` 500회, `configs/coco_cpu.yaml` 30회 (100회 미만이면 대시보드가 경고) | 적게 재면 p95/p99가 우연에 좌우됩니다 |
 | 환경 기록 | GPU/CPU 이름, CUDA, PyTorch 버전, 커밋, 가중치 해시를 모든 결과에 저장 | 나중에 같은 조건으로 다시 잴 수 있어야 합니다 |
@@ -149,7 +170,7 @@ Light R-CNN 체크포인트도 하나만 그립니다. `compare_improvements.py`
 
 | 경고 | 해결 방법 |
 |---|---|
-| 평가한 이미지 수가 다릅니다 / 부분 평가 결과입니다 | 세 모델을 같은 `--limit`(또는 전체 val2017)으로 다시 평가 |
+| 평가한 이미지 수가 다릅니다 / 부분 평가 결과입니다 | 모든 모델을 같은 `--limit`(또는 전체 val2017)으로 다시 평가 |
 | 평가 세트가 COCO val2017 전체(5000장)가 아닙니다 | 작은 스모크 세트 결과입니다. 학습 이미지가 섞인 세트면 AP가 실제보다 높게 나옵니다 |
 | 검출 점수 임계값이 다릅니다 | 학습 중 검증(0.05)과 비교용 평가(0.001)가 섞인 경우가 많습니다. `evaluate_coco.py`로 다시 평가 |
 | 서로 다른 장치에서 측정했습니다 | 왼쪽 메뉴에서 장치를 하나 고르거나 같은 장치에서 다시 측정 |
@@ -157,4 +178,4 @@ Light R-CNN 체크포인트도 하나만 그립니다. `compare_improvements.py`
 
 ## 색과 모양
 
-모델마다 색과 점 모양이 모든 그래프에서 같습니다: Light R-CNN 파랑·원, Faster R-CNN 주황·마름모, YOLO26 청록·사각형. 세 색은 색각 이상 시뮬레이션에서도 구분되도록 골랐고, 모양과 이름표를 함께 써서 색만으로 구분하지 않게 했습니다.
+모델마다 색과 점 모양이 모든 그래프에서 같습니다: Light R-CNN 파랑·원, Faster R-CNN 주황·마름모, YOLO26 청록·사각형, MobileNetV3 Faster R-CNN 노랑·삼각형. 앞의 세 색은 색각 이상 시뮬레이션에서도 구분되도록 골랐습니다. 네 번째 색으로는 그런 색이 없어 노랑은 주황(Faster R-CNN)과 색만으로는 덜 구분되므로, 모양과 이름표를 함께 써서 색만으로 구분하지 않게 했습니다.

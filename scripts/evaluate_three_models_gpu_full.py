@@ -1,4 +1,5 @@
-"""Evaluate Faster R-CNN, Lite R-CNN v2 and v3 on all COCO val2017 images using CUDA by default."""
+"""Evaluate Faster R-CNN, Lite R-CNN v2 and v3 on all COCO val2017 images using CUDA by default
+(--with-mobilenet adds MobileNetV3 Faster R-CNN as a fourth model)."""
 
 import importlib.util
 from pathlib import Path

@@ -3,11 +3,18 @@
 처음 하는 사람도 그대로 따라 할 수 있게 순서대로 적었습니다.
 
 1. Windows PC에서 패치를 적용해 `perf/improve` 브랜치를 GitHub에 올립니다 (약 10분).
-2. Google Colab에서 노트북을 열고 T4 GPU로 **모두 실행**합니다 (약 2시간).
+2. Google Colab에서 노트북을 열고 T4 GPU로 **모두 실행**합니다 (약 2~3시간).
 3. `results.zip`을 팀에 보냅니다. 내 PC의 대시보드로 직접 볼 수도 있습니다.
 4. (선택) 학교 Linux RTX 4090에서 학습 ablation을 돌립니다 (실험당 약 6~7시간).
 
 무엇을 왜 재는지는 [성능 개선 계획](PERFORMANCE_PLAN.md)에 있습니다.
+
+비교하는 검출기는 네 가지입니다: 기준 모델 Faster R-CNN ResNet50-FPN과 **MobileNetV3 Faster R-CNN**, 우리 모델 Lite R-CNN v2·v3,
+1단계 검출 대조군 YOLO26n. MobileNetV3 Faster R-CNN은 팀원 브랜치 `feat/personal-comparison-ci`의 MobileNet 벤치마크와 같은 모델
+(torchvision `fasterrcnn_mobilenet_v3_large_fpn`, COCO_V1 가중치)로, Lite R-CNN과 같은 MobileNetV3-Large 계열 백본을 쓰는 기존 경량
+Faster R-CNN입니다. Lite R-CNN이 그 옆에서 어디쯤인지 보여 주는 비교군이며 BiFPN 하나의 효과를 가르는 실험은 아닙니다.
+torchvision 문서의 box AP 32.8은 800px 기준이라 640으로 재는 여기서는 더 낮게 나올 수 있습니다. 이 모델의 숫자는 Colab 실행에서
+처음 나옵니다 (팀의 CPU 스모크 환경에서는 torchvision 가중치를 내려받을 수 없어 재지 못했음). 빼려면 노트북 설정 `WITH_MOBILENET`을 끕니다.
 
 ## 준비물
 
@@ -73,6 +80,19 @@ git push -u origin perf/improve
 
 GitHub 탭이 안 되면: GitHub 웹에서 이 파일을 열어 **Download raw file**(⬇)로 받고, Colab에서 **파일 → 노트북 업로드**로 올립니다.
 
+### 브랜치를 올리지 못했을 때 (push 없이 실행)
+
+노트북이 받는 코드는 GitHub의 `perf/improve` 브랜치입니다. 1번(브랜치 올리기)을 아직 못 했다면 패치 파일로 대신할 수 있습니다.
+
+1. 전달받은 노트북 파일 `Lite_RCNN_T4_Colab.ipynb`를 **파일 → 노트북 업로드**로 엽니다.
+2. 런타임 유형을 T4 GPU로 정한 뒤, 왼쪽 **파일**(폴더 아이콘) 창의 업로드 버튼으로 `lite-rcnn-perf-improve.patch`를 올립니다 (`/content`에 들어갑니다).
+3. **런타임 → 모두 실행**. 2번 셀이 `perf/improve`를 찾지 못하면 GitHub의 `main`을 받고 올린 패치를 적용한 뒤 그대로 진행합니다
+   (출력에 "패치 …을(를) 적용합니다 (push 없이 실행)"이 보입니다). 설정의 `PATCH_FILE`에 파일 이름을 넣으면 브랜치를 찾지 않고 바로 패치를 씁니다.
+
+- 올린 파일은 세션이 끝나면 사라지므로, 다시 연결했다면 패치를 다시 올리세요.
+- `/content`에 `.patch` 파일이 여러 개면 자동으로 고르지 않으니 `PATCH_FILE`에 이름을 적으세요.
+- 그사이 팀의 `main`이 바뀌어 패치가 맞지 않으면 "패치를 적용하지 못했습니다"가 나옵니다. 그때는 새 패치를 받아야 합니다.
+
 ### 실행
 
 1. **런타임 → 런타임 유형 변경 → 하드웨어 가속기: T4 GPU → 저장** (노트북에 T4가 저장되어 있어 보통 이미 선택되어 있습니다).
@@ -83,19 +103,20 @@ GitHub 탭이 안 되면: GitHub 웹에서 이 파일을 열어 **Download raw f
    - Google Drive 액세스 허용 → **Google Drive에 연결 → 계정 선택 → 허용**. 결과를 드라이브에도 백업해 세션이 끊겨도 남깁니다.
      원하지 않으면 설정에서 `SAVE_TO_DRIVE`를 끄고 실행하세요.
    - 두 창에 답해야 다음으로 넘어가므로 **처음 1~2분은 자리를 지키세요.** 설치 중 빨간 `dependency conflicts` 경고는 무시해도 됩니다.
-5. 셀마다 아래에 출력이 계속 나옵니다. 단계 B는 모델마다 `[9/18] Light R-CNN v2 · 빠른 설정 (fast)`처럼 설정별 정확도를 먼저 잰 뒤,
+5. 셀마다 아래에 출력이 계속 나옵니다. 단계 B는 모델마다 `[15/24] Light R-CNN v2 · 빠른 설정 (fast)`처럼 설정별 정확도를 먼저 잰 뒤,
    `[지연 시간] … 교차 측정` 줄과 함께 그 모델의 설정을 번갈아 가며 지연 시간을 한꺼번에 잽니다.
 6. **실행 중에는 브라우저 탭을 닫지 말고, 컴퓨터가 잠자기에 들어가지 않게** 하세요 (Windows: 설정 → 시스템 → 전원 → 절전 '안 함').
 
 | 단계 | 하는 일 | T4 예상 시간 |
 |---|---|---|
 | 0~3 | GPU 확인, 저장소 받기·설치, COCO val2017 내려받기 (약 1 GB) | 5~10분 |
-| A | 공정한 기준 비교 (`scripts/run_comparison.py`): Faster R-CNN · v2 · YOLO26, 이어서 v3 | 20~35분 |
-| B | 개선 전/후 비교 (`scripts/compare_improvements.py`): 추론 설정 6가지 × 3개 모델 | 70~100분 |
-| C (선택, 기본 꺼짐) | 팀 세 모델 평가 (`scripts/evaluate_three_models_gpu_full.py`) | 20~30분 |
+| A | 공정한 기준 비교 (`scripts/run_comparison.py`): Faster R-CNN · MobileNetV3 Faster R-CNN · v2 · YOLO26, 이어서 v3 | 25~40분 |
+| B | 개선 전/후 비교 (`scripts/compare_improvements.py`): 추론 설정 6가지 × 4개 모델 (Faster R-CNN · MobileNet · v2 · v3) | 85~120분 |
+| C (선택, 기본 꺼짐) | 팀 세 모델 평가 (`scripts/evaluate_three_models_gpu_full.py`, `--with-mobilenet`으로 MobileNet 추가) | 25~35분 |
 
-예상 시간은 T4에서 직접 잰 값이 아니라 추정치입니다. 처음이라 불안하면 설정에서 `QUICK_TEST`를 켜고
-15~20분짜리 점검(이미지 50장, 짧은 측정)을 먼저 돌린 뒤, 끄고 다시 **모두 실행**하세요. 다만 무료 GPU 시간을 그만큼 더 씁니다.
+예상 시간은 T4에서 직접 잰 값이 아니라 추정치입니다. MobileNetV3 Faster R-CNN은 ResNet50 Faster R-CNN보다 훨씬 가벼워
+단계 A에 약 5분, 단계 B에 15~20분, 단계 C에 약 5분을 더하는 것으로 잡았습니다. 처음이라 불안하면 설정에서 `QUICK_TEST`를 켜고
+15~25분짜리 점검(이미지 50장, 짧은 측정)을 먼저 돌린 뒤, 끄고 다시 **모두 실행**하세요. 다만 무료 GPU 시간을 그만큼 더 씁니다.
 점검 결과는 `results_quick.zip`에 따로 담기고 본 측정 `results.zip`에는 섞이지 않습니다.
 
 ### 결과 보내기
@@ -117,7 +138,7 @@ GitHub 탭이 안 되면: GitHub 웹에서 이 파일을 열어 **Download raw f
 
 ```text
 outputs/comparison_runs/<시각>/         단계 A (v2 실행, v3 실행 각각 한 폴더): 정확도·지연 시간·단계별 시간 JSON, figures/report.html
-outputs/improvements/colab_<시각>/      단계 B: summary.md, summary.csv, figures/, reports/v2, reports/v3
+outputs/improvements/colab_<시각>/      단계 B: summary.md, summary.csv, figures/, reports/v2, reports/v3 (두 기준 모델은 버전 폴더마다)
 outputs/evaluation_runs/colab_<시각>/   단계 C: REPORT.md, summary.csv, evaluation.json
 outputs/colab_logs/<시각>/              실행마다: 단계별 로그, GPU 정보, 설정값과 걸린 시간 (colab_run_<시각>.json)
 ```
@@ -144,6 +165,7 @@ streamlit run dashboard/app.py
 
 - 사이드바 **결과 폴더**에 `outputs\improvements\colab_<시각>\reports`를 넣습니다 (`<시각>`은 2번에서 확인한 이름).
 - 이 폴더에는 v2와 v3가 함께 있으므로 사이드바 **Light R-CNN 체크포인트**에서 버전을 고르고, **추론 설정**에서 `fast`, `accurate` 등을 고릅니다.
+  두 기준 모델(Faster R-CNN, MobileNetV3 Faster R-CNN)은 어느 버전을 골라도 함께 보입니다.
 - **개선 전/후** 탭에서 기본 설정(`baseline`)과 비교합니다. p50 변화에 붙은 **95% CI**가 0을 포함하면 '변화 없음 (오차 범위)'으로
   판정됩니다 (`summary.md`의 `Δp50 (%) [95% CI]` 열과 같은 값). 이 구간은 한 번의 실행 안의 흔들림만 담습니다.
   읽는 법은 [성능 개선 계획 5절](PERFORMANCE_PLAN.md#5-결과-읽는-법)에 있습니다.
@@ -151,6 +173,7 @@ streamlit run dashboard/app.py
 
 ### 문제 해결
 
+- **`No module named 'light_rcnn'` 또는 "2번 셀이 '준비 완료.'까지 끝나야 합니다"**: 2번 셀이 코드를 받지 못했거나 그 뒤에 런타임이 초기화된 것입니다. 2번 셀 출력 끝의 오류를 확인하세요. "저장소를 받지 못했습니다"라면 `perf/improve`를 GitHub에 올렸는지 확인하거나 위의 '브랜치를 올리지 못했을 때'처럼 패치 파일을 올립니다. 런타임 유형을 도중에 바꾸면 새 컴퓨터가 배정되어 설치가 사라지므로 **런타임 → 모두 실행**으로 처음부터 다시 돌립니다.
 - **저장소 받기 실패 (비공개 저장소)**: GitHub → Settings → Developer settings → Personal access tokens → **Fine-grained tokens** →
   Generate new token. Resource owner는 `AI-Engineering-Teamproject`, Repository access는 `Lite-R-CNN`만, Permissions는 **Contents: Read-only**.
   조직이 토큰 승인을 요구하면 관리자 승인이 필요합니다. 만든 토큰을 Colab 왼쪽 **🔑(보안 비밀)** → 새 보안 비밀 추가 →
@@ -164,6 +187,8 @@ streamlit run dashboard/app.py
 - **CUDA out of memory**: **런타임 → 세션 다시 시작** 후 처음부터 실행합니다.
 - **COCO 내려받기 실패**: 공식 서버가 안 되면 Hugging Face 사본(`scripts/prepare_hf_coco.py`)으로 자동으로 다시 시도합니다. 둘 다 실패하면 출력 메시지를 보내 주세요.
 - **단계 B에서 `gpu_graph`만 실패**: GPU에서 처음 검증하는 설정이라 그럴 수 있습니다. 나머지 결과와 함께 그대로 보내 주세요.
+- **MobileNet 가중치를 받지 못함** (`MobileNetV3 Faster R-CNN` 단계의 `URLError` 등): 단계 A·C는 그 자리에서 멈추고(앞서 끝난 모델의 결과는 남음),
+  단계 B는 MobileNet만 건너뛰고 계속합니다. 설정에서 `WITH_MOBILENET`을 끄고 멈춘 단계만 다시 돌리면 나머지 모델은 그대로 잽니다.
 
 ## 3. 학교 Linux RTX 4090에서 학습하기
 
