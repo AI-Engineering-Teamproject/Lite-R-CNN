@@ -123,6 +123,30 @@ python scripts/prepare_hf_coco.py --splits annotations val
 
 정확도 평가와 학습에는 이미지뿐 아니라 해당 split의 annotation JSON도 필요합니다. 단일 공통 이미지로 가능한 것은 모델 추론 확인과 지연 시간 측정이며, mAP는 계산할 수 없습니다.
 
+### 다른 데이터셋 (Hugging Face 로더)
+
+[Hyeon1222/COCO](https://huggingface.co/datasets/Hyeon1222/COCO)에는 COCO 외에 VOC, VisDrone도 parquet로 올라가 있고, 라벨은 모두 COCO `category_id`(1~90, `num_classes: 91`)로 맞춰져 있습니다. `light_rcnn.datasets.build_dataset(이름)`은 `CocoTensorDataset`과 같은 형식(원본 크기 0~1 텐서, `boxes`/`labels`/`image_id`, `.ids`, `.coco`)을 돌려주므로 학습·평가 코드를 바꾸지 않고 바꿔 끼울 수 있습니다. 요청한 split의 파일만 받습니다.
+
+| 이름 | 이미지 수 | 특징 |
+|---|---:|---|
+| `coco2017_train`, `coco2017_val` | 118,287 / 5,000 | COCO 2017 원본 |
+| `voc2007_train`, `voc2007_val`, `voc2007_test` | 2,501 / 2,510 / 4,952 | VOC 20클래스 → COCO 이름, difficult는 무시 영역 |
+| `voc2012_train`, `voc2012_val` | 5,717 / 5,823 | test는 라벨 비공개라 없음 |
+| `visdrone2019_train`, `visdrone2019_val`, `visdrone2019_test` | 6,471 / 548 / 1,610 | 드론 시점, 소형 객체 위주, COCO 6클래스. test = test-dev |
+
+```powershell
+python -m pip install -e ".[huggingface]"
+python scripts/evaluate_coco.py --model light_rcnn --weights outputs/coco_4090_v2/best.pth --dataset voc2007_test --device cpu
+```
+
+```python
+from light_rcnn.datasets import build_dataset, build_loader
+dataset = build_dataset("visdrone2019_train", horizontal_flip_prob=0.5)
+loader = build_loader(dataset, batch_size=8, workers=8, shuffle=True)
+```
+
+`iscrowd=1` 박스(VOC difficult, VisDrone ignored region 등)는 `target`에서 빠지고 `dataset.coco`에만 남아, 학습 손실에서는 양성으로 쓰이지 않고 pycocotools 평가에서는 무시 영역으로 처리됩니다. VisDrone은 이미지당 객체가 100개를 넘는 경우가 많아 `box_detections_per_img: 100`에서는 재현율이 잘립니다. 로컬 COCO 형식 데이터셋(Open Images, BDD100K 등)은 `build_dataset(images=..., annotations=...)`로 읽습니다.
+
 ## 학습 및 비교 실행
 
 전체 COCO 학습은 RTX 4090 등 CUDA GPU에서 진행하는 것을 권장합니다. 기본 `configs/coco.yaml`은 CUDA, batch size 8, AMP를 사용하며, CPU 설정은 파이프라인 확인이나 작은 실험용입니다. CPU 처리량으로 추정한 전체 학습 시간은 약 70일 이상이므로 전체 학습에는 사용하지 마십시오.

@@ -21,6 +21,11 @@ def main():
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--limit", type=int, default=0, help="0 evaluates the full validation set")
     parser.add_argument("--batch-size", type=int, help="Evaluation batch size; defaults to config")
+    parser.add_argument(
+        "--dataset",
+        help="Hugging Face split from light_rcnn.datasets (e.g. voc2007_test, visdrone2019_val); "
+        "default is the config's val_images/val_annotations",
+    )
     parser.add_argument("--output")
     args = parser.parse_args()
     if args.model == "light_rcnn" and not args.weights:
@@ -48,9 +53,15 @@ def main():
     device = torch.device(args.device)
     model.to(device).eval()
     data = config["data"]
-    dataset = CocoTensorDataset(data["val_images"], data["val_annotations"])
+    if args.dataset:
+        from light_rcnn.datasets import build_dataset
+
+        dataset = build_dataset(args.dataset)
+    else:
+        dataset = CocoTensorDataset(data["val_images"], data["val_annotations"])
     report = {
         "model": args.model,
+        "dataset": args.dataset or "coco_val2017",
         "weights": args.weights or "torchvision_coco_v1",
         "image_size": model.transform.max_size,
         **evaluate_coco(
@@ -66,7 +77,14 @@ def main():
             ),
         ),
     }
-    output = Path(args.output or f"outputs/{args.model}_coco_metrics.json")
+    output = Path(
+        args.output
+        or (
+            f"outputs/{args.model}_{args.dataset}_metrics.json"
+            if args.dataset
+            else f"outputs/{args.model}_coco_metrics.json"
+        )
+    )
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(json.dumps(report, indent=2))
